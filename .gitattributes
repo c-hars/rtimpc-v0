@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+*.mat binary
+*.gif binary
+*.mp4 binary
+*.png binary
+*.slx binary
+*.mlx binary

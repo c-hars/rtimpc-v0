@@ -1,0 +1,9 @@
+# MATLAB
+*.asv
+*.autosave
+*.m~
+*.mex*
+slprj/
+codegen/
+*.slxc
+.DS_Store
