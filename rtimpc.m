@@ -245,8 +245,7 @@ classdef rtimpc < handle
         % Compute the control input for measured state x.
         %   ref            : ny x N output references for nodes 1..N (or ny x 1, held constant)
         %   InputReference : nu x 1 or nu x N input target (default 0)
-        %   OutputWeights  : ny x ny x N per-node output weights, overriding Qy/Qyf (e.g. for a
-        %                    horizon that shrinks onto the end of a finite-duration task)
+        %   OutputWeights  : ny x ny x N per-node output weights (overriding Qy/Qyf)
         %   InitialGuess   : struct with X (nx,M+1), U (nu,M) on the shooting grid (M = N without
         %                    decimation; see NodeTimes); replaces the warm/cold start
         %   InputPrevious  : nu x 1 input applied over the last sample (u_{-1} for RateR/RateMin/
@@ -259,7 +258,9 @@ classdef rtimpc < handle
         %                    (default 0). On a decimated grid a node change gets the sum of its samples' r_i.
         %   HorizonLength  : plan over only the first n <= N samples (a horizon shrinking onto the
         %                    end of a task); with decimation the grid is rebuilt over them, so the
-        %                    last node lands exactly on sample n
+        %                    last node lands exactly on sample n. The terminal weight Qyf, terminal
+        %                    output and terminal constraints apply at sample n (OutputWeights, when
+        %                    given, are used as given)
         %   Parameters     : np x N model parameters per sample 0..N-1 (or np x 1, held), e.g. a
         %                    disturbance preview; the model is then called as StateFcn(x,u,p) (and
         %                    Jacobian.StateFcn(x,u,p), IntervalFcn(X,U,d,P)), each interval with the
@@ -365,6 +366,9 @@ classdef rtimpc < handle
             else, uref = opts.InputReference;
             end
             W = stage_weights(obj, opts.OutputWeights);
+            if isempty(opts.OutputWeights) && n_eff < N   % a shorter horizon ends at sample n_eff:
+                W(:,:,n_eff) = W(:,:,N);                  % the terminal weight goes there
+            end
             if ~strcmpi(obj.Weights.TerminalLQR, 'off')   % the LQR tail replaces the terminal output weight
                 W(:,:,n_eff) = 0;
             end

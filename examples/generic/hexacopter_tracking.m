@@ -21,7 +21,7 @@ here = fileparts(mfilename('fullpath'));
 root = fullfile(here, '..', '..');  addpath(root, fullfile(root, 'qp'));
 
 P = hexa_params();
-Ts = 0.05;  N = 40;                                      % 20 Hz, 2 s horizon
+Ts = 1/20;  N = 40;                                      % 20 Hz, 2 s horizon
 Lap = 6;                                                 % figure-8 lap time [s]
 T = Lap;                                                 % simulated time [s]: one lap
 Controller = 'rtimpc';                                   % 'rtimpc' | 'nlmpc' (needs the MPC Toolbox)
@@ -62,7 +62,7 @@ for i = 1:N, Xg(:,i+1) = rk4(@(z) hexa(z, uh, P), Xg(:,i), Ts); end   % model ro
 X = zeros(13, steps+1);  X(:,1) = x;  U = zeros(6, steps);
 [tc, sqpit, flag, qplan, qplant] = deal(zeros(1, steps));
 for k = 1:steps
-    r = figure8((k + (1:N)) * Ts, Lap);                  % references at nodes 1..N
+    r = figure8((k - 1 + (1:N)) * Ts, Lap);              % references at nodes 1..N
     if strcmp(Controller, 'nlmpc')
         if k == 1, mvopt.X0 = Xg(:, 2:end)';  mvopt.MV0 = Ug'; end
         c = tic;  [u, mvopt, info] = nlmpcmove(nl, x, u, r', [], mvopt);  tc(k) = toc(c);
@@ -119,10 +119,13 @@ fprintf('  Time/step  first %.0f ms (cold, incl. JIT) | later median %.1f ms, p9
     ms(1), median(later), prctile_(later, 95), 1e3*Ts)
 
 if usejava('desktop') || ~exist('OCTAVE_VERSION', 'builtin')
+    figure(1); clf
     subplot(2,2,[1 3]); plot3(Rf(1,:), Rf(2,:), Rf(3,:), 'k--', X(1,:), X(2,:), X(3,:));
-    axis equal; grid on; xlabel('x [m]'); ylabel('y [m]'); zlabel('z [m]'); legend('reference', Controller)
-    subplot(2,2,2); plot(t, X(1:3,:), t, Rf(1:3,:), 'k--'); ylabel('position [m]'); grid on
+    axis equal; grid on; xlabel('x [m]'); ylabel('y [m]'); zlabel('z [m]'); legend('reference', Controller); view(145, 20)
+    subplot(2,2,2); h = plot(t, X(1:3,:), t, Rf(1:3,:), 'k--'); ylabel('position [m]'); grid on
+    legend(h(1:4), 'x', 'y', 'z', 'reference')
     subplot(2,2,4); stairs(t(1:end-1), U'); ylabel('thrust [N]'); xlabel('t [s]'); grid on
+    legend(compose('rotor %d', 1:6))
 end
 
 
