@@ -118,15 +118,13 @@ fprintf('  Solver     %s | SQP iterations per step median %g, max %d\n', ...
 fprintf('  Time/step  first %.0f ms (cold, incl. JIT) | later median %.1f ms, p95 %.1f ms (wall time; budget %g ms)\n\n', ...
     ms(1), median(later), prctile_(later, 95), 1e3*Ts)
 
-if usejava('desktop') || ~exist('OCTAVE_VERSION', 'builtin')
-    figure(1); clf
-    subplot(2,2,[1 3]); plot3(Rf(1,:), Rf(2,:), Rf(3,:), 'k--', X(1,:), X(2,:), X(3,:));
-    axis equal; grid on; xlabel('x [m]'); ylabel('y [m]'); zlabel('z [m]'); legend('reference', Controller); view(145, 20)
-    subplot(2,2,2); h = plot(t, X(1:3,:), t, Rf(1:3,:), 'k--'); ylabel('position [m]'); grid on
-    legend(h(1:4), 'x', 'y', 'z', 'reference')
-    subplot(2,2,4); stairs(t(1:end-1), U'); ylabel('thrust [N]'); xlabel('t [s]'); grid on
-    legend(compose('rotor %d', 1:6))
-end
+figure(1); clf
+subplot(2,2,[1 3]); plot3(Rf(1,:), Rf(2,:), Rf(3,:), 'k--', X(1,:), X(2,:), X(3,:));
+axis equal; grid on; xlabel('x [m]'); ylabel('y [m]'); zlabel('z [m]'); legend('reference', Controller); view(145, 20)
+subplot(2,2,2); plot(t, X(1:3,:), t, Rf(1:3,:), 'k--'); ylabel('position [m]'); grid on
+legend('x', 'y', 'z', 'reference')
+subplot(2,2,4); stairs(t(1:end-1), U'); ylabel('thrust [N]'); xlabel('t [s]'); grid on
+legend(compose('rotor %d', 1:6))
 
 
 %% ---- Reference ----

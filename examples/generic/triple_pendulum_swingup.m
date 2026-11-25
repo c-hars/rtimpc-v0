@@ -92,15 +92,50 @@ for k = 1:steps
 end
 if live, fprintf('\n'); end
 
+%% Print out report, do plots
+
 print_report(X, U, tc, sqpit, flag, jac, nmpc, Ts, nfine + (N - nfine) / Coarse, 1e3 * Coarse * Ts)
 if ~isempty(SaveRun), save(SaveRun, 'X', 'U', 'Ts', 'tc', 'flag'); fprintf('  Saved %s\n\n', SaveRun); end
 
-if usejava('desktop')
-    t = (0:steps) * Ts;
-    subplot(3,1,1); plot(t, rad2deg(atan2(sin(X(1:3,:)), cos(X(1:3,:))))); ylabel('\phi [deg]'); legend('\phi_1', '\phi_2', '\phi_3'); grid on
-    subplot(3,1,2); plot(t, X(4,:)); hold on; yline([-0.7 0.7], 'k--'); hold off; ylabel('s [m]'); grid on
-    subplot(3,1,3); stairs(t(1:end-1), U); hold on; yline([-22 22], 'k--'); hold off; ylabel('s'''' [m/s^2]'); xlabel('t [s]'); grid on
+
+t = (0:steps) * Ts;
+
+figure(1); clf
+subplot(3,1,1); plot(t, rad2deg(atan2(sin(X(1:3,:)), cos(X(1:3,:))))); ylabel('\phi [deg]'); legend('\phi_1', '\phi_2', '\phi_3'); grid on
+subplot(3,1,2); plot(t, X(4,:)); hold on; yline([-0.7 0.7], 'k--'); hold off; ylabel('s [m]'); grid on
+subplot(3,1,3); stairs(t(1:end-1), U); hold on; yline([-22 22], 'k--'); hold off; ylabel('s'''' [m/s^2]'); xlabel('t [s]'); grid on
+
+skip = 1;  grey = [1 1 1]*0.66;  alpha = 0.25;  % draw every skip-th sample of the links' history with this colour and opacity
+skipFill = 25;  alphaDark = 0.33;               % every skipFill-th sample: links and dots are coloured w.r.t time, different opacity
+dKey = 0.33;                                    % ... and once any point has moved dKey [m] since the last key frame
+lwArm = 2;  lwRail = 0.5;
+szCart = 64;  szJoint = 5^2;  szTip = 5^2;
+
+l = par.l';                                              % arm lengths [m]
+xj = [X(4,:); X(4,:) - cumsum(l .* sin(X(1:3,:)), 1)];   % cart, joints 1-2, tip (angles from the upright,
+yj = [zeros(1, steps+1); cumsum(l .* cos(X(1:3,:)), 1)]; % positive towards -s); y: height above the pivot
+k = unique([1:skip:steps+1, steps+1]);                   % the drawn samples
+
+figure(2); clf; hold on
+xs = [xj(:,k); nan(1, numel(k))];  ys = [yj(:,k); nan(1, numel(k))];   % one line, frames split by NaN
+plot(xs(:), ys(:), 'Color', [grey alpha], 'LineWidth', lwArm);
+kd = 1;                                                  % key frames: skipFill samples on, or moved dKey
+for i = 2:steps+1
+    moved = max(hypot(xj(:,i) - xj(:,kd(end)), yj(:,i) - yj(:,kd(end))));
+    if i - kd(end) >= skipFill && moved >= dKey, kd(end+1) = i; end
 end
+kd = unique([kd, steps+1]);
+cmap = colormap(gca);  ci = round(1 + (size(cmap, 1) - 1) * (t(kd) - t(1)) / (t(end) - t(1)));  % colour of each key frame
+for i = 1:numel(kd), plot(xj(:,kd(i)), yj(:,kd(i)), 'Color', [cmap(ci(i),:) alphaDark], 'LineWidth', lwArm); end
+scatter(xj(1,k), yj(1,k), szCart, grey, 'filled', 'MarkerFaceAlpha', alpha);  % cart
+scatter(reshape(xj(2:3,k), 1, []), reshape(yj(2:3,k), 1, []), szJoint, grey, 'filled', 'MarkerFaceAlpha', alpha);  % joints
+scatter(xj(1,kd), yj(1,kd), szCart, t(kd), 'filled', 'MarkerFaceAlpha', alphaDark);  % cart, key frames
+scatter(reshape(xj(2:3,kd), 1, []), reshape(yj(2:3,kd), 1, []), szJoint, reshape(repmat(t(kd), 2, 1), 1, []), 'filled', 'MarkerFaceAlpha', alphaDark);  % joints, key frames
+scatter(xj(4,:), yj(4,:), szTip, t, 'filled');  % tip path, coloured by time
+plot([-0.7 0.7], [0 0], 'k-', 'LineWidth', lwRail);  xline([-0.7 0.7], 'k--', 'LineWidth', lwRail);  % track and rail limits
+hold off; grid on; axis equal; xlabel('x [m]'); ylabel('height [m]')
+cb = colorbar; cb.Label.String = 't [s]';
+title('Triple pendulum, trajectory over time')
 
 
 %% ---- Report ----
