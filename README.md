@@ -160,7 +160,7 @@ Here `rtimpc` and MATLAB's `nlmpc` are compared on two of the bundled examples:
 Across both examples:
 - **Solved to convergence:** both `nlmpc` and `rtimpc` give the same closed-loop performance, with `rtimpc` 10–40× faster. With a Gauss-Newton Hessian its SQP converges in fewer iterations, and its structure-exploiting QP scales linearly with the horizon (rather than cubically).
 - **RTI:** `rtimpc` with RTI closely matches the converged solution, except on the hardest cases, at ~100–200× less per-step compute than converged `nlmpc`.
-- **Capped `nlmpc`:** capping `nlmpc`'s iterations does not give RTI. On the hexacopter its closed-loop cost ends up about 3× more, and on the cart-pole it never swings up.
+- **Capped `nlmpc`:** capping `nlmpc`'s iterations does not give RTI. On the hexacopter its closed-loop cost ends up about 3–5× more, and on the cart-pole it never swings up.
 
 ### Hexacopter
 
@@ -170,36 +170,36 @@ Shorter laps demand more thrust: the table gives the peak thrust the figure-8 it
 
 | Lap time | Thrust demanded | `nlmpc`, solved to convergence | `rtimpc`, solved to convergence | `nlmpc`, capped at 1 iteration<sup>‡</sup> | `rtimpc`, RTI |
 |---|---|---|---|---|---|
-| 6 s | 81% | 115 | 115 | **320** | 115 |
-| 5 s | 100% | 206 | 206 | **571** | 206 |
-| 4.5 s | 115% | 292 | 292 | **767** | **389** |
-| 4.0 s | 136% | 425 | 425 | loses control | loses control |
+| 6 s | 81% | 78 | 78 | **424** | 78 |
+| 5 s | 100% | 159 | 159 | **659** | 159 |
+| 4.5 s | 115% | 238 | 238 | **870** | **loses control** |
+| 4.0 s | 136% | 374 | 374 | loses control | loses control |
 
-> Near the thrust limits, RTI's full SQP step ($\alpha = 1$) overshoots, since it comes from a poor linearisation. With its line search turned on (`Optimisation.RTILineSearch = true`; off by default, as in acados), RTI does not lose control: for about 1-10% more compute, its closed-loop performance closely tracks that of the converged solution, down to a manoeuvre time of about 3.3 s (just short of 3.1 s, which is the limit of the problem itself, i.e. where a converged solve also loses control):
+> Near the thrust limits, RTI's full SQP step ($\alpha = 1$) overshoots, since it comes from a poor linearisation. With its line search turned on (`Optimisation.RTILineSearch = true`; off by default, as in acados), RTI does not lose control: for about 1-10% more compute, its closed-loop performance closely tracks that of the converged solution, down to a manoeuvre time of 3.3 s, which is the limit of the problem itself (at 3.2 s a converged solve also loses control):
 >
 > | Lap time | `rtimpc`, solved to convergence | `rtimpc`, 2 SQP iterations per step | `rtimpc`, 1 SQP iteration per step + line search | `rtimpc`, 1 SQP iteration per step (RTI) | `nlmpc`, capped at 1 iteration<sup>‡</sup> |
 > |---|---|---|---|---|---|
-> | 4.5 s | 292 | 291 | 291 | 389 | 767 |
-> | 4.0 s | 425 | 423 | 420 | loses control | loses control |
-> | 3.5 s | 738 | 737 | 738 | loses control | loses control |
-> | 3.3 s | 1057 | 1085 | 1053 | loses control | loses control |
-> | 3.2 s | 1274 | 1273 | loses control | loses control | loses control |
-> | 3.1 s | loses control | loses control | loses control | loses control | loses control |
+> | 4.6 s | 219 | 219 | 219 | 238 | 849 |
+> | 4.5 s | 238 | 238 | 238 | loses control | 870 |
+> | 4.1 s | 338 | 338 | 339 | loses control | 1060 |
+> | 4.0 s | 374 | 374 | 374 | loses control | loses control |
+> | 3.5 s | 692 | 717 | 702 | loses control | loses control |
+> | 3.3 s | 1018 | 1073 | 1059 | loses control | loses control |
 >
-> Capped `nlmpc`'s `fmincon` also makes use of a line search after its QP (enabled by default), which helps it degrade gracefully, but it still loses control at 4.1 s and below.
+> Capped `nlmpc`'s `fmincon` already makes use of a line search after its QP (enabled by default), which helps it degrade gracefully, but it still loses control at 4.0 s and below.
 
 Focussing on the 6 s lap - a relatively benign manoeuvre - we see how 1-iteration-capped `nlmpc` has already diverged from true RTI, with its $J$ score markedly higher, despite RTI itself showing no difference:
 
 | Controller | Per-step compute | Cost $J$ | RMS position error |
 |---|---|---|---|
-| `nlmpc`, solved to convergence | 3.5 s | 115 | 0.25 m |
-| `rtimpc`, solved to convergence | 340 ms | 115 | 0.25 m |
-| `nlmpc`, capped at 1 iteration<sup>‡</sup> | 160 ms | 320 | 0.65 m |
-| `rtimpc`, RTI | 16 ms | 115 | 0.25 m |
+| `nlmpc`, solved to convergence | 3.5 s | 78 | 0.084 m |
+| `rtimpc`, solved to convergence | 340 ms | 78 | 0.084 m |
+| `nlmpc`, capped at 1 iteration<sup>‡</sup> | 160 ms | 424 | 0.77 m |
+| `rtimpc`, RTI | 16 ms | 78 | 0.084 m |
 
 Median per-step compute for both `nlmpc` and `rtimpc` is also given above, with `rtimpc` showing improvement in both cases (RTI, and solving to convergence).
 
-Finally, allowing the runs to *continue over a second lap* shows another gap between the two: with the same 6 s manoeuvre, and the same 1 SQP iteration/step restriction, `nlmpc` loses control, while `rtimpc` continues to track the path steadily (0.26 m RMS error over both laps); [illustrated at the top of the README](#banner).
+Finally, allowing the runs to *continue over a second lap* shows another gap between the two: with the same 6 s manoeuvre, and the same 1 SQP iteration/step restriction, `nlmpc` loses control, while `rtimpc` continues to track the path steadily (0.085 m RMS error over both laps); [illustrated at the top of the README](#banner).
 
 ### Cart-pole swing-up
 
