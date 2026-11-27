@@ -1,22 +1,14 @@
 function res = ocp_nlp_res_compute(qp, dual, uscale, xscaled)
-% OCP_NLP_RES_COMPUTE  KKT residuals of an OCP-structured QP (ocp_qp_riccati_ipm's format) at the
-% zero step (x_1 = x0, all other states and inputs 0), with given multipliers.
+% OCP_NLP_RES_COMPUTE  KKT residuals of an OCP-structured QP (ocp_qp_riccati_ipm's format) at the zero step (x_1 = x0, all other states and inputs 0), with given multipliers.
 %
-% For the QP of an SQP iteration, built at the current iterate, these are the residuals of the NLP
-% at that iterate (the QP's gradients are the cost gradient there, its matrices the constraint
-% Jacobians, its constants the gaps and bound margins), as acados's ocp_nlp_res_compute:
+% For the QP of an SQP iteration, built at the current iterate, these are the residuals of the NLP at that iterate (the QP's gradients are the cost gradient there, its matrices the constraint Jacobians, its constants the gaps and bound margins), as acados's ocp_nlp_res_compute:
 %   stat  inf-norm of the Lagrangian gradient (states of nodes 2..N+1, inputs, soft slacks)
 %   eq    inf-norm of the dynamics gaps (and of the first-node equality rows Eq1)
 %   ineq  largest violation of a hard bound or row (soft rows: absorbed by their slacks)
 %   comp  inf-norm of multiplier x margin (bound or row value to its limit, plus its slack)
-% x_1 is fixed and eliminated (acados keeps it with an equality bound whose multiplier absorbs its
-% stationarity row: the same set of conditions). The cost is the QP's (rtimpc: J/2, as acados's).
+% x_1 is fixed and eliminated (acados keeps it with an equality bound whose multiplier absorbs its stationarity row: the same set of conditions). The cost is the QP's (rtimpc: J/2, as acados's).
 %
-% dual: pi (nx,N+1), lam_lb, lam_ub (nu,N), and as present lam_lbx, lam_ubx (nx,N+1), lam_lg, lam_ug
-% (ng,N+1), nu_eq1 (ne,1); missing fields are zero. Input scaling: the QP's inputs are scaled,
-% u = uscale .* u_qp, and so are the states xscaled (row indices; e.g. the rate-augmented previous
-% input steps): their stationarity rows are divided by uscale and their bound violations multiplied,
-% so the residuals are in physical units (the complementarity products are invariant).
+% dual: pi (nx,N+1), lam_lb, lam_ub (nu,N), and as present lam_lbx, lam_ubx (nx,N+1), lam_lg, lam_ug (ng,N+1), nu_eq1 (ne,1); missing fields are zero. Input scaling: the QP's inputs are scaled, u = uscale .* u_qp, and so are the states xscaled (row indices; e.g. the rate-augmented previous input steps): their stationarity rows are divided by uscale and their bound violations multiplied, so the residuals are in physical units (the complementarity products are invariant).
 
     [nx, nu, N] = size(qp.B);
     if nargin < 3 || isempty(uscale), uscale = ones(nu, 1); end
@@ -93,15 +85,7 @@ function [zl, zu, Zl, Zu] = soft_weights(qp, fzl, fzu, fZl, fZu, n, m)
 end
 
 function [viol, comp, rs] = bound_terms(v, lo, hi, lam_lo, lam_hi, zlo, zhi, Zlo, Zhi, scale)
-% Violation (hard sides), complementarity and slack stationarity of lo <= v <= hi with multipliers
-% lam_lo, lam_hi; a side with a finite L1 weight is soft: its slack s = max(0, violation) (the
-% smallest feasible; with a quadratic weight Z > 0, at least (lam - z)/Z, see below) relaxes it, with the slack's own conditions z + Z s - lam - n = 0, n >= 0,
-% n s = 0. With n = max(0, z + Z s - lam) (the closest admissible), the stationarity residual is
-% max(0, lam - z - Z s) and n s joins the complementarity: continuous in s (a round-off slack does
-% not switch to |z + Z s - lam|). Hard equalities (lo = hi, both sides hard) carry no
-% complementarity (acados zeroes them: the two multipliers act as one free one). A soft side keeps
-% its product: it is an inequality with its own slack, lo - s <= v (or v <= hi + s), whether or
-% not lo = hi. scale: per row, physical = scale x QP units.
+% Violation (hard sides), complementarity and slack stationarity of lo <= v <= hi with multipliers lam_lo, lam_hi; a side with a finite L1 weight is soft: its slack s = max(0, violation) (the smallest feasible; with a quadratic weight Z > 0, at least (lam - z)/Z, see below) relaxes it, with the slack's own conditions z + Z s - lam - n = 0, n >= 0, n s = 0. With n = max(0, z + Z s - lam) (the closest admissible), the stationarity residual is max(0, lam - z - Z s) and n s joins the complementarity: continuous in s (a round-off slack does not switch to |z + Z s - lam|). Hard equalities (lo = hi, both sides hard) carry no complementarity (acados zeroes them: the two multipliers act as one free one). A soft side keeps its product: it is an inequality with its own slack, lo - s <= v (or v <= hi + s), whether or not lo = hi. scale: per row, physical = scale x QP units.
     m = size(v, 2);  scale = scale .* ones(1, m);
     flo = isfinite(lo);  fhi = isfinite(hi);
     dlo = zeros(size(v));  dhi = dlo;
@@ -109,11 +93,7 @@ function [viol, comp, rs] = bound_terms(v, lo, hi, lam_lo, lam_hi, zlo, zhi, Zlo
     dhi(fhi) = v(fhi) - hi(fhi);
     softlo = flo & isfinite(zlo);  softhi = fhi & isfinite(zhi);
     slo = max(dlo, 0) .* softlo;  shi = max(dhi, 0) .* softhi;
-    % Quadratic soft sides (Z > 0): the slack the multiplier implies, (lam - z)/Z, where it exceeds
-    % the smallest feasible one. The slack is a variable of the QP (acados keeps it in its iterate);
-    % this one zeroes its own stationarity, and the row's margin it leaves, s - violation, is in the
-    % row's complementarity, lam (s - violation), as acados's. (With the violation itself, an IPM
-    % margin t ~ comp/lam became a stationarity residual Z t: 4e-6 at Z = 1e2, lam 0.03.)
+    % Quadratic soft sides (Z > 0): the slack the multiplier implies, (lam - z)/Z, where it exceeds the smallest feasible one. The slack is a variable of the QP (acados keeps it in its iterate); this one zeroes its own stationarity, and the row's margin it leaves, s - violation, is in the row's complementarity, lam (s - violation), as acados's. (With the violation itself, an IPM margin t ~ comp/lam became a stationarity residual Z t: 4e-6 at Z = 1e2, lam 0.03.)
     qlo = softlo & Zlo > 0;  qhi = softhi & Zhi > 0;
     slo(qlo) = max(slo(qlo), (lam_lo(qlo) - zlo(qlo)) ./ Zlo(qlo));
     shi(qhi) = max(shi(qhi), (lam_hi(qhi) - zhi(qhi)) ./ Zhi(qhi));

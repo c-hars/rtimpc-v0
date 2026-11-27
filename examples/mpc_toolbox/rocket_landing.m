@@ -1,25 +1,15 @@
 function R = rocket_landing()
 %% rtimpc example: plan and land a two-thruster vehicle (MPC Toolbox example)
 %
-% Rebuilt from MATLAB's "Landing a Vehicle Using Multistage Nonlinear MPC" (nlmpcMultistage): an
-% offline fuel-optimal landing plan, then closed-loop MPC tracking it. The model is written here
-% from the same equations; no MathWorks files are needed.
+% Rebuilt from MATLAB's "Landing a Vehicle Using Multistage Nonlinear MPC" (nlmpcMultistage): an offline fuel-optimal landing plan, then closed-loop MPC tracking it. The model is written here from the same equations; no MathWorks files are needed.
 %
-% A planar lander (disc, m = 1 kg, I = 50 kg m^2, two thrusters 5 m either side of the centre),
-% x = [x; y; theta; dx; dy; dtheta], u = [left; right] thrust in [0, 8] N, y >= 10 m (hard),
-% Ts = 0.2 s, from x0 = [-30 60 0 0 0 0]. Continuous model, implicit trapezoidal rule.
-%   Planner: p = 50 (10 s), fuel cost sum(u_k(1) + u_k(2)), hard terminal state [0 10 0 0 0 0];
-%     one cold solve from a guess of x0 everywhere and zero inputs.
-%   Lander: p = 10, cost sum |x_i - r_i|^2 + sum 0.1 (i+1) |u_i - u_{i-1}|^2, r = the plan previewed
-%     over the horizon (its end held), converged SQP each step; plant: ode45 over each sample;
-%     stops once within 1e-2 of the target.
+% A planar lander (disc, m = 1 kg, I = 50 kg m^2, two thrusters 5 m either side of the centre), x = [x; y; theta; dx; dy; dtheta], u = [left; right] thrust in [0, 8] N, y >= 10 m (hard), Ts = 0.2 s, from x0 = [-30 60 0 0 0 0]. Continuous model, implicit trapezoidal rule.
+%   Planner: p = 50 (10 s), fuel cost sum(u_k(1) + u_k(2)), hard terminal state [0 10 0 0 0 0]; one cold solve from a guess of x0 everywhere and zero inputs.
+%   Lander: p = 10, cost sum |x_i - r_i|^2 + sum 0.1 (i+1) |u_i - u_{i-1}|^2, r = the plan previewed over the horizon (its end held), converged SQP each step; plant: ode45 over each sample; stops once within 1e-2 of the target.
 %
-% Shows: an offline trajectory optimisation and a tracking MPC with the same tool; a linear
-% (fuel) cost as Weights.InputLinear with the exact Hessian; a hard terminal-state constraint;
-% a per-stage rate weight (pages of Weights.RateR); a previewed reference; analytic Jacobians.
+% Shows: an offline trajectory optimisation and a tracking MPC with the same tool; a linear (fuel) cost as Weights.InputLinear with the exact Hessian; a hard terminal-state constraint; a per-stage rate weight (pages of Weights.RateR); a previewed reference; analytic Jacobians.
 %
-% Parity with nlmpcMultistage (same OCPs): the same plan (fuel 492.968948; states within 3e-5) and
-% the same landing (84 steps, fuel 827.646; states within 2e-5).
+% Parity with nlmpcMultistage (same OCPs): the same plan (fuel 492.968948; states within 3e-5) and the same landing (84 steps, fuel 827.646; states within 2e-5).
 
     here = fileparts(mfilename('fullpath'));
     root = fullfile(here, '..', '..');  addpath(root, fullfile(root, 'qp'));

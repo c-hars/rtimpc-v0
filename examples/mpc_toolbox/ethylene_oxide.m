@@ -1,27 +1,13 @@
 function S = ethylene_oxide()
 %% rtimpc example: economic MPC of an ethylene oxide reactor (MPC Toolbox example)
 %
-% Rebuilt from MATLAB's "Economic MPC Control of Ethylene Oxide Production" (nlmpc with a custom
-% cost, in Simulink), its closed loop as a script. The model is written here from the same
-% equations; no MathWorks files are needed.
+% Rebuilt from MATLAB's "Economic MPC Control of Ethylene Oxide Production" (nlmpc with a custom cost, in Simulink), its closed loop as a script. The model is written here from the same equations; no MathWorks files are needed.
 %
-% An ethylene oxidation CSTR (Durand, Ellis, Christofides 2016), x = [gas density; C2H4; C2H4O;
-% temperature], u = [C2H4 feed concentration (MV); jacket temperature Tc; C2H4 feed rate], the
-% last two measured disturbances; all dimensionless. Economic objective: maximise the C2H4O
-% production rate at the end of the horizon, i.e. minimise V = -(u3/u1) x3 x4 at node p.
-% Ts = 25 s, horizon 2; prediction model: 2500 forward-Euler steps of 0.01 s; 0.1 <= u1 <= 3,
-% |du1| <= 0.5 per sample; x >= 0 (hard). Tc steps 1.1 -> 1.15 at t = 100 s, the feed rate
-% 0.175 -> 0.25 at 200 s; 300 s from the steady state at u = [0.5 1.1 0.175]. Plant: the
-% continuous model by ode15s. The original's figures: first move 1.0 (rate-limited from 0.5);
-% optimal production rates 0.0156 (u1 = 1.6), then 0.0135 and 0.0195.
+% An ethylene oxidation CSTR (Durand, Ellis, Christofides 2016), x = [gas density; C2H4; C2H4O; temperature], u = [C2H4 feed concentration (MV); jacket temperature Tc; C2H4 feed rate], the last two measured disturbances; all dimensionless. Economic objective: maximise the C2H4O production rate at the end of the horizon, i.e. minimise V = -(u3/u1) x3 x4 at node p. Ts = 25 s, horizon 2; prediction model: 2500 forward-Euler steps of 0.01 s; 0.1 <= u1 <= 3, |du1| <= 0.5 per sample; x >= 0 (hard). Tc steps 1.1 -> 1.15 at t = 100 s, the feed rate 0.175 -> 0.25 at 200 s; 300 s from the steady state at u = [0.5 1.1 0.175]. Plant: the continuous model by ode15s. The original's figures: first move 1.0 (rate-limited from 0.5); optimal production rates 0.0156 (u1 = 1.6), then 0.0135 and 0.0195.
 %
-% Shows: an economic (non-tracking) cost as Weights.TerminalCostFcn with its gradient and
-% Hessian, Hessian 'exact', input rate limits, a discrete model returning its own Jacobians,
-% time-varying disturbances read by a nested model function.
+% Shows: an economic (non-tracking) cost as Weights.TerminalCostFcn with its gradient and Hessian, Hessian 'exact', input rate limits, a discrete model returning its own Jacobians, time-varying disturbances read by a nested model function.
 %
-% Parity with nlmpc (same OCP): same first move (1.0) and production rates at 100 and 300 s
-% (0.0153, 0.0193); at 200 s rtimpc 0.0135, nlmpc 0.0131 (optimum 0.0135). Solved at nlmpc's own
-% closed-loop states, rtimpc's cost matches or is lower (by at most 8e-7).
+% Parity with nlmpc (same OCP): same first move (1.0) and production rates at 100 and 300 s (0.0153, 0.0193); at 200 s rtimpc 0.0135, nlmpc 0.0131 (optimum 0.0135). Solved at nlmpc's own closed-loop states, rtimpc's cost matches or is lower (by at most 8e-7).
 
     here = fileparts(mfilename('fullpath'));
     root = fullfile(here, '..', '..');  addpath(root, fullfile(root, 'qp'));
@@ -37,10 +23,7 @@ function S = ethylene_oxide()
     o.Constraints.RateMin = -0.02 * Ts;  o.Constraints.RateMax = 0.02 * Ts;
     o.Constraints.StateMin = zeros(4, 1);  o.Constraints.StateMax = inf(4, 1);  o.Constraints.StatePenaltyL1 = Inf;
     op = o.Optimisation;  op.Hessian = 'exact';  op.ComputeCost = true;  op.SQPMaxIter = 50;
-    % QP complementarity: an active bound is left t = TolComp / lam short of its value. The
-    % economic cost is ~0.02, and the rate limits' multipliers are ~3e-4, so the IPM's absolute
-    % default 1e-8 leaves t ~ 3e-5 (first move 0.99997 for 1.0) and the plan 3e-4 off the optimum
-    % at an active second-move limit; 1e-12 gives t ~ 3e-9 (the plans then match fmincon to 3e-8).
+    % QP complementarity: an active bound is left t = TolComp / lam short of its value. The economic cost is ~0.02, and the rate limits' multipliers are ~3e-4, so the IPM's absolute default 1e-8 leaves t ~ 3e-5 (first move 0.99997 for 1.0) and the plan 3e-4 off the optimum at an active second-move limit; 1e-12 gives t ~ 3e-9 (the plans then match fmincon to 3e-8).
     op.QPSolverOptions = struct('TolComp', 1e-12);  op.FirstStepSQPMaxIter = 50;
     o.Optimisation = op;
 

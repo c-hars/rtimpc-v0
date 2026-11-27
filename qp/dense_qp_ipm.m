@@ -3,62 +3,18 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
 %
 %   min 1/2 z'H z + g'z   s.t.  lb <= z <= ub,   cl <= G z <= cu
 %
-% H positive (semi)definite; +-Inf bounds allowed; G may be empty (box constraints only). Rows
-% with cl == cu are equality constraints, handled as such (an equality multiplier), not as two
-% inequalities whose slacks would both vanish and wreck the conditioning.
-% Mehrotra predictor-corrector. Per iteration, one factorisation shared by the predictor and
-% corrector: Cholesky of M = H + diag(Db) + Gi' diag(Dg) Gi (Gi: the inequality rows) without
-% equalities, else LU of the augmented system [M Ge'; Ge 0] (lightly regularised). Stops when
-% the infinity norms of the stationarity, primal (slack) and complementarity residuals are all
-% within their tolerances.
-% Returns z and info with fields status ('solved' | 'max_iter' | 'stalled': numerical breakdown,
-% the last good iterate is returned; within TolAcceptable of every tolerance it counts as 'solved',
-% with info.acceptable, as IPOPT's acceptable point; so do AcceptableIter consecutive iterates within it, and, after a later stall or MaxIter, the best acceptable iterate passed), iter (iterations done; iter_selected: the returned best iterate's index, when one was), res_stat, res_eq, res_comp (largest t*lam),
-% mu (mean t*lam), lam_lb, lam_ub, lam_cl, lam_cu.
+% H positive (semi)definite; +-Inf bounds allowed; G may be empty (box constraints only). Rows with cl == cu are equality constraints, handled as such (an equality multiplier), not as two inequalities whose slacks would both vanish and wreck the conditioning. Mehrotra predictor-corrector. Per iteration, one factorisation shared by the predictor and corrector: Cholesky of M = H + diag(Db) + Gi' diag(Dg) Gi (Gi: the inequality rows) without equalities, else LU of the augmented system [M Ge'; Ge 0] (lightly regularised). Stops when the infinity norms of the stationarity, primal (slack) and complementarity residuals are all within their tolerances. Returns z and info with fields status ('solved' | 'max_iter' | 'stalled': numerical breakdown, the last good iterate is returned; within TolAcceptable of every tolerance it counts as 'solved', with info.acceptable, as IPOPT's acceptable point; so do AcceptableIter consecutive iterates within it, and, after a later stall or MaxIter, the best acceptable iterate passed), iter (iterations done; iter_selected: the returned best iterate's index, when one was), res_stat, res_eq, res_comp (largest t*lam), mu (mean t*lam), lam_lb, lam_ub, lam_cl, lam_cu.
 %
-% Factorisation and refinement follow HPIPM's dense QP IPM (Frison & Diehl, 2020; its modes in
-% brackets):
-%   Factor 'normal'  Cholesky of M = H + diag(Db) + G'diag(Dg)G (HPIPM lq_fact = 0, speed modes).
-%                    Near convergence Dg = lam/t reaches 1e16+ on active rows and M, formed
-%                    explicitly, loses the accuracy of the Newton step.
-%          'auto'    as 'normal', but after each predictor solve the residual of the linear
-%                    system is checked; above 1e-5 (or NaN) the step is refactorised with LQ and
-%                    LQ is used for the rest of the solve (lq_fact = 1, balance mode)
+% Factorisation and refinement follow HPIPM's dense QP IPM (Frison & Diehl, 2020; its modes in brackets):
+%   Factor 'normal'  Cholesky of M = H + diag(Db) + G'diag(Dg)G (HPIPM lq_fact = 0, speed modes). Near convergence Dg = lam/t reaches 1e16+ on active rows and M, formed explicitly, loses the accuracy of the Newton step.
+%          'auto'    as 'normal', but after each predictor solve the residual of the linear system is checked; above 1e-5 (or NaN) the step is refactorised with LQ and LQ is used for the rest of the solve (lq_fact = 1, balance mode)
 %          'lq'      LQ from the start (lq_fact = 2, robust mode)
-%   LQ: with L_H = chol(H + 1e-15 I) (computed once), the lower factor L of
-%   [L_H, diag(sqrt(Db)), G'diag(sqrt(Dg))] = L Q gives L L' = M without forming G'diag(Dg)G.
-%   Equalities by the Schur complement Ge M^-1 Ge', itself factorised by LQ of [1e-15 I, Ge L^-T].
-%   If H is not positive definite the LQ path is not available and 'normal' is used (as HPIPM).
-%   Refine   iterative refinement steps on the corrector (itref_corr_max: 2 in balance, 8 in
-%            robust mode): the residual of the linear system is solved again with the same
-%            factorisation, until it is below the tolerances or 1e-3 of the IPM's residuals; a
-%            step that does not reduce it is undone.
-%   Proximal  false (default) | true | struct overriding any of Rho0 (1e-6), Delta0 (1e-4), Min
-%            (1e-10): PIQP's proximal interior-point method instead (extras/pipqp: qp_pipm with the kkt_dense backend). Its barrier
-%            terms are bounded by 1/delta and equalities enter through Ge'Ge/delta, so the Newton
-%            matrix stays well conditioned on degenerate or LP-like QPs. Factor and Refine do not
-%            apply there (PIQP's own safeguards are used). It also stops on PIQP's duality gap:
-%            TolGap (1e-8) absolute or TolGapRel (1e-9) relative to its largest term.
-%   Scale    Ruiz equilibration passes (0, the default: off; PIQP uses 10; extras/pipqp/ruiz_equilibrate), in either mode. The
-%            QP is solved in scaled variables and mapped back; the stopping tests use residuals
-%            in the original units. Variable bounds are scaled directly (PIQP instead scales them
-%            as rows of the KKT matrix).
-%   PenaltyL1, PenaltyL2   soft inequality rows (as HPIPM's soft constraints): row i becomes
-%            cl_i - sl_i <= G_i z <= cu_i + su_i with slacks sl, su >= 0 that add
-%            PenaltyL1_i (sl_i + su_i) + 1/2 PenaltyL2_i (sl_i^2 + su_i^2) to the objective. Each is
-%            rows x 1, or rows x 2 for [lower upper]; PenaltyL1 = Inf (the default) keeps a row hard.
-%            The slacks are eliminated per row, as in ocp_qp_riccati_ipm: a soft row's barrier
-%            term D = lam/t is replaced by D in series with the slack's curvature,
-%            1/D~ = 1/D + 1/(Z + nu/s), so the Newton matrix keeps its size. Equality rows stay
-%            hard. Not with Proximal or Scale. Returns info.slack_cl, info.slack_cu (0 on hard
-%            rows). TolStat is absolute, as HPIPM's.
-%   Defaults: HPIPM's balance mode ('auto', Refine = 2). On the hardest mass-spring QPs (condensed,
-%   M = 30, starts in +-3) it solves 14 of 14, against 12 for 'normal' without refinement and 13
-%   for 'normal' with it; LQ from the start ('lq') solves 12, as its accuracy also runs out once
-%   lam/t passes ~1e20, so refinement and the late switch are what matter. Maros-Meszaros: 38 of
-%   42 either way (with TolEq at its default 1e-8, HPIPM's res_b; at 1e-6 'auto' stops QADLITTL and
-%   QSHARE2B where an independent KKT check fails them). Cost per iteration: none to +30% while
-%   'normal' is accurate; once LQ engages, about 3-4x (it stays on for the rest of the solve).
+%   LQ: with L_H = chol(H + 1e-15 I) (computed once), the lower factor L of [L_H, diag(sqrt(Db)), G'diag(sqrt(Dg))] = L Q gives L L' = M without forming G'diag(Dg)G. Equalities by the Schur complement Ge M^-1 Ge', itself factorised by LQ of [1e-15 I, Ge L^-T]. If H is not positive definite the LQ path is not available and 'normal' is used (as HPIPM).
+%   Refine   iterative refinement steps on the corrector (itref_corr_max: 2 in balance, 8 in robust mode): the residual of the linear system is solved again with the same factorisation, until it is below the tolerances or 1e-3 of the IPM's residuals; a step that does not reduce it is undone.
+%   Proximal  false (default) | true | struct overriding any of Rho0 (1e-6), Delta0 (1e-4), Min (1e-10): PIQP's proximal interior-point method instead (extras/pipqp: qp_pipm with the kkt_dense backend). Its barrier terms are bounded by 1/delta and equalities enter through Ge'Ge/delta, so the Newton matrix stays well conditioned on degenerate or LP-like QPs. Factor and Refine do not apply there (PIQP's own safeguards are used). It also stops on PIQP's duality gap: TolGap (1e-8) absolute or TolGapRel (1e-9) relative to its largest term.
+%   Scale    Ruiz equilibration passes (0, the default: off; PIQP uses 10; extras/pipqp/ruiz_equilibrate), in either mode. The QP is solved in scaled variables and mapped back; the stopping tests use residuals in the original units. Variable bounds are scaled directly (PIQP instead scales them as rows of the KKT matrix).
+%   PenaltyL1, PenaltyL2   soft inequality rows (as HPIPM's soft constraints): row i becomes cl_i - sl_i <= G_i z <= cu_i + su_i with slacks sl, su >= 0 that add PenaltyL1_i (sl_i + su_i) + 1/2 PenaltyL2_i (sl_i^2 + su_i^2) to the objective. Each is rows x 1, or rows x 2 for [lower upper]; PenaltyL1 = Inf (the default) keeps a row hard. The slacks are eliminated per row, as in ocp_qp_riccati_ipm: a soft row's barrier term D = lam/t is replaced by D in series with the slack's curvature, 1/D~ = 1/D + 1/(Z + nu/s), so the Newton matrix keeps its size. Equality rows stay hard. Not with Proximal or Scale. Returns info.slack_cl, info.slack_cu (0 on hard rows). TolStat is absolute, as HPIPM's.
+%   Defaults: HPIPM's balance mode ('auto', Refine = 2). On the hardest mass-spring QPs (condensed, M = 30, starts in +-3) it solves 14 of 14, against 12 for 'normal' without refinement and 13 for 'normal' with it; LQ from the start ('lq') solves 12, as its accuracy also runs out once lam/t passes ~1e20, so refinement and the late switch are what matter. Maros-Meszaros: 38 of 42 either way (with TolEq at its default 1e-8, HPIPM's res_b; at 1e-6 'auto' stops QADLITTL and QSHARE2B where an independent KKT check fails them). Cost per iteration: none to +30% while 'normal' is accurate; once LQ engages, about 3-4x (it stays on for the rest of the solve).
 
     arguments
         H; g; lb; ub
@@ -159,8 +115,7 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
     Gz = G*z;
     [tl, tu, ll, lu]     = init_slacks(z,  lb, ub, hl, hu, opts.Mu0);
     [tgl, tgu, lgl, lgu] = init_slacks(Gz, cl, cu, hgl, hgu, opts.Mu0);
-    % Soft-row slacks s and their multipliers n, started as in ocp_qp_riccati_ipm: the weight on n,
-    % s = Mu0/n (the row starts out nearly hard)
+    % Soft-row slacks s and their multipliers n, started as in ocp_qp_riccati_ipm: the weight on n, s = Mu0/n (the row starts out nearly hard)
     ngl = max(zgl + Zgl - lgl, opts.Mu0) .* hsl;  ngu = max(zgu + Zgu - lgu, opts.Mu0) .* hsu;
     sgl = ones(size(cl));  sgl(hsl) = opts.Mu0 ./ ngl(hsl);
     sgu = ones(size(cl));  sgu(hsu) = opts.Mu0 ./ ngu(hsu);
@@ -196,9 +151,7 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
             iter = iter - 1;
             break
         end
-        % IPOPT's acceptable termination: AcceptableIter consecutive iterates within TolAcceptable of
-        % every tolerance (e.g. stationarity stuck at round-off above an absolute TolStat when the
-        % gradients are ~1e8: Hock-Schittkowski 99)
+        % IPOPT's acceptable termination: AcceptableIter consecutive iterates within TolAcceptable of every tolerance (e.g. stationarity stuck at round-off above an absolute TolStat when the gradients are ~1e8: Hock-Schittkowski 99)
         if ipm_acceptable(res_stat, res_eq, res_comp, opts)
             n_acc = n_acc + 1;
             score = max([res_stat / opts.TolStat, res_eq / opts.TolEq, res_comp / opts.TolComp]);
@@ -343,8 +296,7 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
     end
 
     function r0 = rhs()
-        % Right-hand side of the reduced Newton system: bound and row residuals folded into rd.
-        % Soft rows: the slack step's constant part g_s enters the row's residual.
+        % Right-hand side of the reduced Newton system: bound and row residuals folded into rd. Soft rows: the slack step's constant part g_s enters the row's residual.
         gb = -rcl./tl + (ll./tl).*rl + rcu./tu - (lu./tu).*ru;
         gsl = (-rsl + rcgl./tgl - Dgl.*rgl + rcsl./sgl) ./ Egl .* hsl;
         gsu = (-rsu + rcgu./tgu - Dgu.*rgu + rcsu./sgu) ./ Egu .* hsu;
@@ -401,8 +353,7 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
     end
 
     function st = breakdown_status()
-    % IPOPT's acceptable point: a breakdown at an iterate within TolAcceptable of every tolerance
-    % counts as solved (info.acceptable); else 'stalled'
+    % IPOPT's acceptable point: a breakdown at an iterate within TolAcceptable of every tolerance counts as solved (info.acceptable); else 'stalled'
         if ipm_acceptable(res_stat, res_eq, res_comp, opts)
             st = 'solved';  info.acceptable = true;
         else
@@ -426,9 +377,7 @@ end
 
 
 function [tl, tu, ll, lu] = init_slacks(v, lb, ub, hl, hu, mu0)
-% Slacks at least 1 and multipliers mu0: a start well inside, whatever the initial z. (A slack
-% floor of 1e-2 with lam = mu0/t put a pair at t = 1e-2, lam = 100 and held the first steps to
-% ~1e-6 on badly scaled problems; on the Maros-Meszaros set this start solves 3 more.)
+% Slacks at least 1 and multipliers mu0: a start well inside, whatever the initial z. (A slack floor of 1e-2 with lam = mu0/t put a pair at t = 1e-2, lam = 100 and held the first steps to ~1e-6 on badly scaled problems; on the Maros-Meszaros set this start solves 3 more.)
     tl = ones(size(v));  tl(hl) = max(v(hl) - lb(hl), 1);
     tu = ones(size(v));  tu(hu) = max(ub(hu) - v(hu), 1);
     ll = mu0 * hl;
@@ -436,9 +385,7 @@ function [tl, tu, ll, lu] = init_slacks(v, lb, ub, hl, hu, mu0)
 end
 
 function L = chol_reg(M)
-% Cholesky factor of a (nominally) positive definite matrix. If rounding has made it numerically
-% indefinite (extreme barrier terms near convergence), add the smallest diagonal regularisation
-% that restores definiteness; the residual-based Newton steps absorb the perturbation.
+% Cholesky factor of a (nominally) positive definite matrix. If rounding has made it numerically indefinite (extreme barrier terms near convergence), add the smallest diagonal regularisation that restores definiteness; the residual-based Newton steps absorb the perturbation.
     [L, p] = chol(M);
     if p == 0, return, end
     d = 1e-12 * max(1, max(abs(diag(M))));

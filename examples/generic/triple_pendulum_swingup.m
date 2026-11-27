@@ -1,31 +1,14 @@
 %% rtimpc example: triple pendulum swing-up at 100 Hz
 %
-% The identified triple pendulum on a cart of Glück, Eder & Kugi ("Swing-up control of a triple
-% pendulum on a cart with experimental validation", Automatica 49(3), 2013): three arms swung from
-% all hanging at rest to all upright, under the rig's limits (rail |s| <= 0.7 m, cart speed
-% |s'| <= 3 m/s, acceleration |s''| <= 22 m/s^2; the input is the cart acceleration). The paper uses
-% an offline trajectory and a time-variant Riccati controller; here one NMPC does it all, from a
-% cold start: no offline plan, the first guess is the rig left hanging with zero input.
+% The identified triple pendulum on a cart of Glück, Eder & Kugi ("Swing-up control of a triple pendulum on a cart with experimental validation", Automatica 49(3), 2013): three arms swung from all hanging at rest to all upright, under the rig's limits (rail |s| <= 0.7 m, cart speed |s'| <= 3 m/s, acceleration |s''| <= 22 m/s^2; the input is the cart acceleration). The paper uses an offline trajectory and a time-variant Riccati controller; here one NMPC does it all, from a cold start: no offline plan, the first guess is the rig left hanging with zero input.
 %
 % Set-up:
-%   - 100 Hz feedback, 4 s horizon on a two-tier grid: 0.08 s at 10 ms, then 40 ms intervals
-%     (DecimationFactors [1 4], StepsPerTier 8; N = 106 instead of 400). Its closed loops stay
-%     close to the full 10 ms grid's, at roughly a quarter of its step time.
-%   - Cost as the NMPC suite's triple_pendulum, per 10 ms sample (its 20 Hz weights x 0.2): arm angles,
-%     cart, velocities and input; terminal weight 10x. The rail and cart-speed limits are soft.
-%   - Input-rate weight RateR = 10 per 10 ms change (rtimpc applies it per sample of the fine grid,
-%     so a 40 ms interval's change gets 10/4: the same smoothness penalty on any grid). Without it
-%     the input chatters at the bounds.
-%   - Cold first step: up to 300 SQP iterations, unconverged but enough to set up the swing (run to
-%     convergence, the first plan swings faster but pushes the cart over the soft rail limit). Then
-%     2 SQP iterations per step with the merit line search. A single iteration per step fails from
-%     this start: the swing is chaotic, and plain RTI's full steps overshoot from the unconverged
-%     first plan.
-%   - After a failed step the next one keeps the plan (OnFailure 'keep-primal'): no cold restart,
-%     which would cost a 300-iteration step inside a 10 ms budget.
-% Analytic Jacobians (checked by validate); all shooting intervals integrated in one vectorised call
-% (Model.IntervalFcn: RK4 with sensitivities, as rtimpc's own). Step times are plain MATLAB, far from the 10 ms
-% budget: the example shows the controller's behaviour, not real-time execution.
+%   - 100 Hz feedback, 4 s horizon on a two-tier grid: 0.08 s at 10 ms, then 40 ms intervals (DecimationFactors [1 4], StepsPerTier 8; N = 106 instead of 400). Its closed loops stay close to the full 10 ms grid's, at roughly a quarter of its step time.
+%   - Cost as the NMPC suite's triple_pendulum, per 10 ms sample (its 20 Hz weights x 0.2): arm angles, cart, velocities and input; terminal weight 10x. The rail and cart-speed limits are soft.
+%   - Input-rate weight RateR = 10 per 10 ms change (rtimpc applies it per sample of the fine grid, so a 40 ms interval's change gets 10/4: the same smoothness penalty on any grid). Without it the input chatters at the bounds.
+%   - Cold first step: up to 300 SQP iterations, unconverged but enough to set up the swing (run to convergence, the first plan swings faster but pushes the cart over the soft rail limit). Then 2 SQP iterations per step with the merit line search. A single iteration per step fails from this start: the swing is chaotic, and plain RTI's full steps overshoot from the unconverged first plan.
+%   - After a failed step the next one keeps the plan (OnFailure 'keep-primal'): no cold restart, which would cost a 300-iteration step inside a 10 ms budget.
+% Analytic Jacobians (checked by validate); all shooting intervals integrated in one vectorised call (Model.IntervalFcn: RK4 with sensitivities, as rtimpc's own). Step times are plain MATLAB, far from the 10 ms budget: the example shows the controller's behaviour, not real-time execution.
 
 clear
 here = fileparts(mfilename('fullpath'));
@@ -38,8 +21,7 @@ SQPIter = 2;  FirstIter = 300;                           % SQP iterations per st
 RateR = 10;                                              % input-rate weight per 10 ms change
 T = 6;                                                   % closed-loop run [s]
 SaveRun = '';                                            % e.g. 'triple_pendulum_run.mat' to keep X, U
-ColdStart = '';                                          % e.g. 'triple_pendulum_cold.mat': saves the first plan, then reuses it
-                                                         % as the first step's initial guess (skips the cold solve)
+ColdStart = '';                                          % e.g. 'triple_pendulum_cold.mat': saves the first plan, then reuses it as the first step's initial guess (skips the cold solve)
 
 N = round(Horizon / Ts);  nfine = round(FineTime / Ts);
 w = 0.2;                                                 % per-sample weights: the suite's (per 50 ms) x 10/50
@@ -187,12 +169,10 @@ function par = rig_parameters()
 end
 
 function dx = dynamics(x, u, par)
-% Absolute arm angles from the upright vertical; the cart acceleration is the input (s'' = u).
-% From the Lagrangian of the paper's eq. (2):
+% Absolute arm angles from the upright vertical; the cart acceleration is the input (s'' = u). From the Lagrangian of the paper's eq. (2):
 %   sum_k M_jk cos(phi_j - phi_k) phi_k'' + sum_k M_jk sin(phi_j - phi_k) phi_k'^2
 %     - b_j cos(phi_j) u - g b_j sin(phi_j) + dR/dphi_j' = 0,
-% M_jk = sum_i m_i lam_ij lam_ik + J_j delta_jk, b_j = sum_i m_i lam_ij, lam_ik the lever of arm k
-% in the position of arm i's centre of gravity (l_k for k < i, a_i for k = i, else 0).
+% M_jk = sum_i m_i lam_ij lam_ik + J_j delta_jk, b_j = sum_i m_i lam_ij, lam_ik the lever of arm k in the position of arm i's centre of gravity (l_k for k < i, a_i for k = i, else 0).
     m = par.m;  l = par.l;  a = par.a;  J = par.J;  d = par.d;  g = par.g;
     lam = [a(1), 0, 0; l(1), a(2), 0; l(1), l(2), a(3)];
     Mc = lam' * diag(m) * lam + diag(J);  b = (m * lam)';
@@ -207,8 +187,7 @@ function dx = dynamics(x, u, par)
 end
 
 function [A, B] = dynamics_jacobian(x, u, par)
-% df/dx and df/du of dynamics. With M_jk = Mc_jk cos(phi_j - phi_k) and the arm accelerations
-% acc = M \ rhs:  d acc = M \ (d rhs - dM acc).
+% df/dx and df/du of dynamics. With M_jk = Mc_jk cos(phi_j - phi_k) and the arm accelerations acc = M \ rhs:  d acc = M \ (d rhs - dM acc).
     m = par.m;  l = par.l;  a = par.a;  J = par.J;  d = par.d;  g = par.g;
     lam = [a(1), 0, 0; l(1), a(2), 0; l(1), l(2), a(3)];
     Mc = lam' * diag(m) * lam + diag(J);  b = (m * lam)';
@@ -229,8 +208,7 @@ function [A, B] = dynamics_jacobian(x, u, par)
 end
 
 function [Xn, Ad, Bd] = rk4_intervals(X, U, d, Ts, ns, par)
-% All shooting intervals at once (columns): ns RK4 steps of d(i)*Ts/ns each, with forward
-% sensitivities, the same scheme as rtimpc's own RK4. Xn 8 x K, Ad 8 x 8 x K, Bd 8 x 1 x K.
+% All shooting intervals at once (columns): ns RK4 steps of d(i)*Ts/ns each, with forward sensitivities, the same scheme as rtimpc's own RK4. Xn 8 x K, Ad 8 x 8 x K, Bd 8 x 1 x K.
     K = size(X, 2);  h = reshape(d, 1, K) * Ts / ns;  hp = reshape(h, 1, 1, K);  I = eye(8);
     sens = nargout > 1;  Xn = X;
     if sens, Ad = repmat(I, 1, 1, K);  Bd = zeros(8, 1, K); end

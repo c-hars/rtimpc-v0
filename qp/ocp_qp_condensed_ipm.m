@@ -1,16 +1,13 @@
 function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
 % OCP_QP_CONDENSED_IPM  OCP-QP solver by full condensing + dense interior point.
 %
-% Same problem and interface as ocp_qp_riccati_ipm, soft state bounds and general rows included. The states are eliminated using the
-% dynamics, x = Theta*u + w, leaving a dense QP in the N*nu inputs:
+% Same problem and interface as ocp_qp_riccati_ipm, soft state bounds and general rows included. The states are eliminated using the dynamics, x = Theta*u + w, leaving a dense QP in the N*nu inputs:
 %
 %   min 1/2 z'H z + g'z  s.t. lb <= z <= ub,  lbx - w <= Theta z <= ubx - w (bounded rows only),
 %        and each general row lg <= Cg x + Dg u <= ug with x = Theta z + w
 %   H = Theta'Qb Theta + Rb + Sb Theta + Theta'Sb',   g = Theta'(Qb w + qb) + r + Sb w
 %
-% (the classic ACADO/qpOASES pipeline). Condensing costs O(N^2), each IPM iteration a dense
-% O((N nu)^3) Cholesky -- more flops than the O(N) Riccati recursion, but executed as a few
-% large BLAS calls rather than many small matrix operations.
+% (the classic ACADO/qpOASES pipeline). Condensing costs O(N^2), each IPM iteration a dense O((N nu)^3) Cholesky -- more flops than the O(N) Riccati recursion, but executed as a few large BLAS calls rather than many small matrix operations.
 
     arguments
         ocp struct
@@ -75,8 +72,7 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
     end
     H = 0.5*(H + H');
 
-    % --- State bounds become general linear constraints on z (bounded rows of Theta only);
-    % soft ones become soft rows, their slacks eliminated inside dense_qp_ipm
+    % --- State bounds become general linear constraints on z (bounded rows of Theta only); soft ones become soft rows, their slacks eliminated inside dense_qp_ipm
     if isfield(ocp, 'lbx')
         lbx = ocp.lbx(:,2:end);  ubx = ocp.ubx(:,2:end);
         bnd = isfinite(lbx(:)) | isfinite(ubx(:));
@@ -125,10 +121,7 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
     % --- Dense QP
     z_init = [];
     if isfield(ocp, 'u_init'), z_init = ocp.u_init(:); end
-    % Stationarity in the OCP's units: the condensed gradient residual is Theta'*r_x + r_u, with r_x,
-    % r_u the per-stage residuals the Riccati IPM tests. For unstable dynamics over long horizons
-    % Theta grows exponentially, and an absolute 1e-8 on the condensed residual lies below
-    % round-off (cart-pole, 4 s: H spans 1e3..1e10, and solved QPs ran to MaxIter).
+    % Stationarity in the OCP's units: the condensed gradient residual is Theta'*r_x + r_u, with r_x, r_u the per-stage residuals the Riccati IPM tests. For unstable dynamics over long horizons Theta grows exponentially, and an absolute 1e-8 on the condensed residual lies below round-off (cart-pole, 4 s: H spans 1e3..1e10, and solved QPs ran to MaxIter).
     o = opts;  o.TolStat = opts.TolStat * max(1, norm(Th, 1));
     args = namedargs2cell(o);
     [z, qinfo] = dense_qp_ipm(H, g, ocp.lb(:), ocp.ub(:), G, cl, cu, args{:}, soft_args{:}, 'z_init', z_init);

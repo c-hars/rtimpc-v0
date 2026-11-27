@@ -1,22 +1,14 @@
 %% rtimpc example: pendulum swing-up and cart step (MPC Toolbox example)
 %
-% Rebuilt from MATLAB's "Swing-Up Control of Pendulum Using Nonlinear Model Predictive Control"
-% (nlmpc). The model is written here from the same equations; no MathWorks files are needed.
+% Rebuilt from MATLAB's "Swing-Up Control of Pendulum Using Nonlinear Model Predictive Control" (nlmpc). The model is written here from the same equations; no MathWorks files are needed.
 %
-% Cart-pole: cart 1 kg with viscous damping 10, pendulum 1 kg, l = 0.5 m; state [z; dz; theta;
-% dtheta], theta = 0 upright. Discrete model: 10 forward-Euler steps per sample, Ts = 0.1 s, used
-% as the prediction model and as the plant. Swing up from hanging, hold the cart at z = 0, then
-% step the cart to z = 5 m at t = 10 s with the pendulum kept upright.
+% Cart-pole: cart 1 kg with viscous damping 10, pendulum 1 kg, l = 0.5 m; state [z; dz; theta; dtheta], theta = 0 upright. Discrete model: 10 forward-Euler steps per sample, Ts = 0.1 s, used as the prediction model and as the plant. Swing up from hanging, hold the cart at z = 0, then step the cart to z = 5 m at t = 10 s with the pendulum kept upright.
 %
-% Shows: a discrete-time model with complex-step Jacobians, a control horizon as a decimated
-% shooting grid (DecimationFactors), a soft output bound, a cost on input changes.
+% Shows: a discrete-time model with complex-step Jacobians, a control horizon as a decimated shooting grid (DecimationFactors), a soft output bound, a cost on input changes.
 %
-% Differences from the original: exact state feedback (the original uses an EKF on noisy
-% measurements); the bound |z| <= 10 is soft with a quadratic penalty per node (nlmpc: one slack
-% over the horizon; inactive in this run).
+% Differences from the original: exact state feedback (the original uses an EKF on noisy measurements); the bound |z| <= 10 is soft with a quadratic penalty per node (nlmpc: one slack over the horizon; inactive in this run).
 %
-% Parity with nlmpc (same OCP, state feedback): both swing up (upright from t = 1.5 s vs 1.4 s) and
-% settle at z = 5 m after the step; the swing paths differ, closed-loop cost 2000 vs 1709.
+% Parity with nlmpc (same OCP, state feedback): both swing up (upright from t = 1.5 s vs 1.4 s) and settle at z = 5 m after the step; the swing paths differ, closed-loop cost 2000 vs 1709.
 
 clear
 here = fileparts(mfilename('fullpath'));
