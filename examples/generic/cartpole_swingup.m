@@ -46,7 +46,7 @@ nmpc.Constraints.InputMin = -Fmax;
 nmpc.Constraints.InputMax =  Fmax;
 nmpc.Constraints.StateMin = [-Xmax; -inf; -inf; -inf];   % only the cart position is bounded
 nmpc.Constraints.StateMax = [ Xmax;  inf;  inf;  inf];
-nmpc.Constraints.StateSoftL1 = 1e5;                      % soft track limit: cost per metre of violation
+nmpc.Constraints.StatePenaltyL1 = 1e5;                   % soft track limit: cost per metre of violation
                                                          % (Inf = hard)
 nmpc.Optimisation.SQPMaxIter = SQPIter;                  % after the (full SQP) cold start
 nmpc.Optimisation.FirstStepSQPMaxIter = 100;             % the cold swing-up plan needs ~70 SQP its
@@ -123,7 +123,7 @@ function print_report(X, U, tc, qpit, sqpit, flag, qpok, xviol, xmult, jac, nmpc
     fprintf('\n=== %s: cart-pole swing-up ===\n', ctrl)
     fprintf('  Problem    nx = %d, nu = %d, ny = %d | Ts = %g ms, N = %d (%.1f s horizon), %s\n', ...
         nmpc.nx, nmpc.nu, nmpc.ny, 1e3*Ts, N, N*Ts, upper(nmpc.Optimisation.Integrator))
-    L1 = nmpc.Constraints.StateSoftL1(1);
+    L1 = nmpc.Constraints.StatePenaltyL1(1);
     fprintf('  Weights    Qy = diag(%s), Qyf = diag(%s), R = %g, RateR = %g\n', mat2str(diag(nmpc.Weights.Qy)'), ...
         mat2str(diag(nmpc.Weights.Qyf)'), nmpc.Weights.R, nmpc.Weights.RateR)
     fprintf('  Bounds     |F| <= %g N (hard),  |x| <= %g m (%s)\n', Fmax, Xmax, ...

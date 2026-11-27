@@ -12,7 +12,7 @@ function R = truck_trailer()
 % truck and trailer keep 1 m from two rectangular obstacles (17.5 x 20 m, centred at
 % (+-11.25, -20)) at nodes 1..p-1 (hard). Initial guess: the original's waypoint heuristic.
 %
-% Shows: nonlinear path constraints (Model.ConstraintFcn, Jacobian by complex step through a
+% Shows: nonlinear path constraints (Model.PathConstraintFcn, Jacobian by complex step through a
 % polygon-distance function), a hard terminal-state constraint, an initial guess for a cold solve.
 %
 % Parity with nlmpcMultistage (same OCP and guess): both park feasibly with the clearance held;
@@ -30,14 +30,14 @@ function R = truck_trailer()
     o.Weights.Qy = zeros(4);  o.Weights.R = eye(2);
     o.Constraints.InputMin = [-pi/4; -10];  o.Constraints.InputMax = [pi/4; 10];
     o.Constraints.StateMin = [-Inf; -Inf; -Inf; -pi/2];  o.Constraints.StateMax = [Inf; Inf; Inf; pi/2];
-    o.Constraints.StateSoftL1 = Inf;
-    o.Model.ConstraintFcn = @(x, u) collision_rows(x, par);          % <= 0: 1 m clearance
-    o.Constraints.ConstraintMin = -inf(4, 1);  o.Constraints.ConstraintMax = zeros(4, 1);
-    o.Constraints.ConstraintSoftL1 = Inf;
+    o.Constraints.StatePenaltyL1 = Inf;
+    o.Model.PathConstraintFcn = @(x, u) collision_rows(x, par);      % <= 0: 1 m clearance
+    o.Constraints.PathConstraintMin = -inf(4, 1);  o.Constraints.PathConstraintMax = zeros(4, 1);
+    o.Constraints.PathConstraintPenaltyL1 = Inf;
     o.Model.TerminalConstraintFcn = @(x) x - target;
     o.Jacobian.TerminalConstraintFcn = @(x) eye(4);
     o.Constraints.TerminalConstraintMin = zeros(4, 1);  o.Constraints.TerminalConstraintMax = zeros(4, 1);
-    o.Constraints.TerminalConstraintSoftL1 = Inf;
+    o.Constraints.TerminalConstraintPenaltyL1 = Inf;
     op = o.Optimisation;
     op.Integrator = 'trapezoidal';  op.FirstStepSQPMaxIter = 200;  op.ComputeCost = true;
     o.Optimisation = op;

@@ -35,7 +35,7 @@ nmpc.Weights.Qy = 9 * eye(2);  nmpc.Weights.Qyf = 9 * eye(2);
 nmpc.Weights.R = 0;  nmpc.Weights.RateR = 0.01;
 nmpc.Constraints.InputMin = -100;  nmpc.Constraints.InputMax = 100;
 nmpc.Constraints.OutputMin = [-10; -Inf];  nmpc.Constraints.OutputMax = [10; Inf];
-nmpc.Constraints.OutputSoftL1 = 0;  nmpc.Constraints.OutputSoftL2 = 1e5;
+nmpc.Constraints.OutputPenaltyL1 = 0;  nmpc.Constraints.OutputPenaltyL2 = 1e5;
 op = nmpc.Optimisation;
 op.DecimationFactors = [1 6];  op.StepsPerTier = 4;      % control horizon 5: moves 5..10 held
 op.CostDiscretisation = 'integrator';                    % outputs still costed at every sample

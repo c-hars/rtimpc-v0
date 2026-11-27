@@ -43,10 +43,10 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
 %            QP is solved in scaled variables and mapped back; the stopping tests use residuals
 %            in the original units. Variable bounds are scaled directly (PIQP instead scales them
 %            as rows of the KKT matrix).
-%   SoftL1, SoftL2   soft inequality rows (as HPIPM's soft constraints): row i becomes
+%   PenaltyL1, PenaltyL2   soft inequality rows (as HPIPM's soft constraints): row i becomes
 %            cl_i - sl_i <= G_i z <= cu_i + su_i with slacks sl, su >= 0 that add
-%            SoftL1_i (sl_i + su_i) + 1/2 SoftL2_i (sl_i^2 + su_i^2) to the objective. Each is
-%            rows x 1, or rows x 2 for [lower upper]; SoftL1 = Inf (the default) keeps a row hard.
+%            PenaltyL1_i (sl_i + su_i) + 1/2 PenaltyL2_i (sl_i^2 + su_i^2) to the objective. Each is
+%            rows x 1, or rows x 2 for [lower upper]; PenaltyL1 = Inf (the default) keeps a row hard.
 %            The slacks are eliminated per row, as in ocp_qp_riccati_ipm: a soft row's barrier
 %            term D = lam/t is replaced by D in series with the slack's curvature,
 %            1/D~ = 1/D + 1/(Z + nu/s), so the Newton matrix keeps its size. Equality rows stay
@@ -79,17 +79,17 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
         opts.Refine    (1,1) double = 2      % iterative refinement steps on the corrector (see below)
         opts.Proximal = false                % false | true | struct with Rho0, Delta0, Min (see below)
         opts.Scale    (1,1) double = 0       % Ruiz equilibration passes (0: off; PIQP uses 10)
-        opts.SoftL1 = []                     % rows x 1 or rows x 2 ([lower upper]): L1 slack weights (Inf: hard)
-        opts.SoftL2 = []                     % rows x 1 or rows x 2: L2 slack weights (default 0)
+        opts.PenaltyL1 = []                  % rows x 1 or rows x 2 ([lower upper]): L1 slack weights (Inf: hard)
+        opts.PenaltyL2 = []                  % rows x 1 or rows x 2: L2 slack weights (default 0)
         opts.z_init = []
         opts.UnscaleZ = []                   % (internal: Ruiz factors, residual tests in original units)
         opts.UnscaleRows = []
     end
 
     prox_off = (islogical(opts.Proximal) || isnumeric(opts.Proximal)) && isscalar(opts.Proximal) && ~opts.Proximal;
-    soft = ~isempty(opts.SoftL1) && any(isfinite(opts.SoftL1(:)));
+    soft = ~isempty(opts.PenaltyL1) && any(isfinite(opts.PenaltyL1(:)));
     if soft && (opts.Scale > 0 || ~prox_off)
-        error('rtimpc:SoftRows', 'Soft rows (SoftL1) are not supported with Proximal or Scale.')
+        error('rtimpc:SoftRows', 'Soft rows (PenaltyL1) are not supported with Proximal or Scale.')
     end
     if (opts.Scale > 0 || ~prox_off) && ~exist('qp_pipm', 'file')
         error('rtimpc:pipqp', 'Proximal and Scale need extras/pipqp on the path (addpath rtimpc/extras/pipqp).')
@@ -133,8 +133,8 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
     % Soft rows: L1/L2 weights per inequality row (zero outside the soft masks hsl, hsu)
     [zgl, zgu] = deal(inf(rows, 1));  [Zgl, Zgu] = deal(zeros(rows, 1));
     if soft
-        W1 = opts.SoftL1 .* ones(rows, 2);  zgl = W1(:,1);  zgu = W1(:,2);
-        if ~isempty(opts.SoftL2), W2 = opts.SoftL2 .* ones(rows, 2);  Zgl = W2(:,1);  Zgu = W2(:,2); end
+        W1 = opts.PenaltyL1 .* ones(rows, 2);  zgl = W1(:,1);  zgu = W1(:,2);
+        if ~isempty(opts.PenaltyL2), W2 = opts.PenaltyL2 .* ones(rows, 2);  Zgl = W2(:,1);  Zgu = W2(:,2); end
         if any(eq & (isfinite(zgl) | isfinite(zgu)))
             error('rtimpc:SoftRows', 'Equality rows (cl == cu) cannot be soft.')
         end

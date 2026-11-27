@@ -118,8 +118,8 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
     end
     soft_args = {};
     if any(isfinite(W1(:)))
-        soft_args = {'SoftL1', W1};
-        if any(W2(:)), soft_args = [soft_args, {'SoftL2', W2}]; end
+        soft_args = {'PenaltyL1', W1};
+        if any(W2(:)), soft_args = [soft_args, {'PenaltyL2', W2}]; end
     end
 
     % --- Dense QP

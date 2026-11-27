@@ -31,7 +31,7 @@ function R = rocket_landing()
     o.Weights.Qy = zeros(6);  o.Weights.R = zeros(2);  o.Weights.InputLinear = [1; 1];
     o.Model.TerminalConstraintFcn = @(x) x - target;  o.Jacobian.TerminalConstraintFcn = @(x) eye(6);
     o.Constraints.TerminalConstraintMin = zeros(6, 1);  o.Constraints.TerminalConstraintMax = zeros(6, 1);
-    o.Constraints.TerminalConstraintSoftL1 = Inf;
+    o.Constraints.TerminalConstraintPenaltyL1 = Inf;
     op = o.Optimisation;  op.FirstStepSQPMaxIter = 1000;  op.Hessian = 'exact';  o.Optimisation = op;   % Gauss-Newton: no curvature with a linear cost
     guess = struct('X', repmat(x0, 1, pP + 1), 'U', repmat(u0, 1, pP));
     t0 = tic;
@@ -59,7 +59,7 @@ function o = common(o)
     o.Model.StateFcn = @lander_ct;  o.Jacobian.StateFcn = @lander_jac;
     o.Constraints.InputMin = [0; 0];  o.Constraints.InputMax = [8; 8];
     o.Constraints.StateMin = [-Inf; 10; -Inf(4, 1)];  o.Constraints.StateMax = Inf(6, 1);
-    o.Constraints.StateSoftL1 = Inf;
+    o.Constraints.StatePenaltyL1 = Inf;
     op = o.Optimisation;  op.Integrator = 'trapezoidal';  op.ComputeCost = true;
     o.Optimisation = op;
 end

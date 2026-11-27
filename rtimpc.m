@@ -8,15 +8,15 @@ classdef rtimpc < handle
 %        StateMin - sl_i <= x_i <= StateMax + su_i,  sl_i, su_i >= 0  (i = 1..N)
 %   e_i = h(x_i, u_i) - ref_i,    W_i = Qy (i < N), Qyf (i = N)
 %   [+ sum_i g_i'u_i  (InputLinear)]
-%   with the state-bound slacks penalised by  StateSoftL1'(sl_i + su_i) + StateSoftL2'(sl_i.^2 + su_i.^2)
-%   (soft bounds; StateSoftL1 = Inf makes a bound hard); optionally path constraints (i = 1..N)
+%   with the state-bound slacks penalised by  StatePenaltyL1'(sl_i + su_i) + StatePenaltyL2'(sl_i.^2 + su_i.^2)
+%   (soft bounds; StatePenaltyL1 = Inf makes a bound hard); optionally path constraints (i = 1..N)
 %        OutputMin <= h(x_i, u_i) <= OutputMax  (i = 1..N; node N uses u_{N-1}),
-%        ConstraintMin <= g(x_i, u_i) <= ConstraintMax  (i = 1..N-1; node 0: InitialConstraintFcn, as acados),
+%        PathConstraintMin <= g(x_i, u_i) <= PathConstraintMax  (i = 1..N-1; node 0: InitialConstraintFcn, as acados),
 %        TerminalConstraintMin <= g_N(x_N) <= TerminalConstraintMax,
 %        InitialConstraintMin <= g_0(x_0, u_0) <= InitialConstraintMax  (node 0: x_0 = x is fixed, so
 %        these constrain u_0, e.g. input-only rows; acados's con_h_expr_0)
-%   soft in the same way (OutputSoftL1/L2, ConstraintSoftL1/L2, TerminalConstraintSoftL1/L2,
-%   InitialConstraintSoftL1/L2); and input-rate terms
+%   soft in the same way (OutputPenaltyL1/L2, PathConstraintPenaltyL1/L2, TerminalConstraintPenaltyL1/L2,
+%   InitialConstraintPenaltyL1/L2); and input-rate terms
 %   sum_i (u_i - u_{i-1})'RateR(u_i - u_{i-1}),  RateMin <= u_i - u_{i-1} <= RateMax  (u_{-1}: last input)
 %
 % using the standard real-time NMPC machinery (Diehl et al. 2002; acados):
@@ -55,14 +55,14 @@ classdef rtimpc < handle
             'OutputFcn',        [], ...   % @(x,u) y; empty -> y = x
             'TerminalOutputFcn', [], ...  % @(x) y_N at node N (ny outputs, as acados's terminal output); empty -> OutputFcn, which must then not depend on u (D = 0 at node N)
             'IntervalFcn',      [], ...   % optional @(X,U,d) [Xn, A, B]: all intervals at once, replaces integrating StateFcn; @(X,U,d,P) with Parameters
-            'ConstraintFcn',    [], ...   % @(x,u) g: path constraints ConstraintMin <= g(x_i, u_i) <= ConstraintMax, nodes 1..N-1 (node 0: InitialConstraintFcn; node N: TerminalConstraintFcn; as acados)
+            'PathConstraintFcn', [], ...  % @(x,u) g: path constraints PathConstraintMin <= g(x_i, u_i) <= PathConstraintMax, nodes 1..N-1 (node 0: InitialConstraintFcn; node N: TerminalConstraintFcn; as acados)
             'TerminalConstraintFcn', [], ... % @(x) gN: TerminalConstraintMin <= gN(x_N) <= TerminalConstraintMax
             'InitialConstraintFcn', [], ...  % @(x,u) g0: InitialConstraintMin <= g0(x_0, u_0) <= InitialConstraintMax, node 0
             'ConstraintHessianFcn', [], ...  % @(x,u) H (nx+nu x nx+nu x ng): row curvature added under Gauss-Newton x the row's upper multiplier (see ggn_curvature)
             'TerminalConstraintHessianFcn', [], ... % @(x) H (nx x nx x ngt), as ConstraintHessianFcn
             'InitialConstraintHessianFcn', [], ...  % @(x,u) H (nx+nu x nx+nu x ng0), as ConstraintHessianFcn
             'IntervalHessianFcn', [], ...    % Hessian 'exact': optional @(X,U,d,Pi) H (nx+nu x nx+nu x M): Hessian of Pi(:,i)'F(x_i, u_i) in (x_i, u_i), all intervals at once (@(X,U,d,Pi,P) with Parameters); replaces lagrangian_curvature's finite differences of the dynamics
-            'ConstraintLagrangianHessianFcn', [], ... % Hessian 'exact': optional @(X,U,L) H (nx+nu x nx+nu x K): Hessian of L(:,k)'g(x_k, u_k) (ConstraintFcn rows), K inner nodes at once; replaces their finite differences
+            'ConstraintLagrangianHessianFcn', [], ... % Hessian 'exact': optional @(X,U,L) H (nx+nu x nx+nu x K): Hessian of L(:,k)'g(x_k, u_k) (PathConstraintFcn rows), K inner nodes at once; replaces their finite differences
             'IsContinuousTime', true, ...
             'StateFcnReturnsJacobian', false)  % true: [f, A, B] = StateFcn(x,u) (one call, no
                                                % separate Jacobian.StateFcn -- avoids recomputing f)
@@ -71,7 +71,7 @@ classdef rtimpc < handle
             'StateFcn',  [], ...          % @(x,u) [A, B] (continuous or discrete, matching the model)
             'OutputFcn', [], ...          % @(x,u) [C, D] (D may be omitted -> 0)
             'TerminalOutputFcn', [], ...  % @(x) C_N = dy_N/dx; empty -> central differences
-            'ConstraintFcn', [], ...      % @(x,u) [Cg, Dg] = dg/d(x,u); empty -> central differences
+            'PathConstraintFcn', [], ...  % @(x,u) [Cg, Dg] = dg/d(x,u); empty -> central differences
             'TerminalConstraintFcn', [], ... % @(x) dgN/dx; empty -> central differences
             'InitialConstraintFcn', [])   % @(x,u) [C0, D0] = dg0/d(x,u); empty -> central differences
 
@@ -90,26 +90,26 @@ classdef rtimpc < handle
             'InputMax', [], ...           % nu x 1 (+Inf allowed)
             'StateMin', [], ...           % nx x 1, bounds on predicted states x_1..x_N
             'StateMax', [], ...           % (the measured x_0 is not constrained)
-            'StateSoftL1', [], ...        % scalar, nx x 1 or nx x N (per node): cost per unit bound violation per node (Inf = hard; empty -> 1e4)
-            'StateSoftL2', [], ...        % scalar, nx x 1 or nx x N: cost per unit violation squared (empty -> 0)
+            'StatePenaltyL1', [], ...     % scalar, nx x 1 or nx x N (per node): cost per unit bound violation per node (Inf = hard; empty -> 1e4)
+            'StatePenaltyL2', [], ...     % scalar, nx x 1 or nx x N: cost per unit violation squared (empty -> 0)
             'RateMin', [], ...            % nu x 1 hard limit on u_i - u_{i-1} per sample (-Inf allowed)
             'RateMax', [], ...            % nu x 1 (+Inf allowed); empty -> no rate limit
             'OutputMin', [], ...          % ny x 1 bounds on y = OutputFcn(x_i, u_i), nodes 1..N (+-Inf allowed)
             'OutputMax', [], ...
-            'OutputSoftL1', [], ...       % scalar or ny x 1, as StateSoftL1 (Inf = hard; empty -> 1e4)
-            'OutputSoftL2', [], ...       % scalar or ny x 1 (empty -> 0)
-            'ConstraintMin', [], ...      % ng x 1 bounds on g = Model.ConstraintFcn(x_i, u_i), nodes 1..N-1
-            'ConstraintMax', [], ...
-            'ConstraintSoftL1', [], ...   % scalar or ng x 1 (Inf = hard; empty -> 1e4)
-            'ConstraintSoftL2', [], ...   % scalar or ng x 1 (empty -> 0)
+            'OutputPenaltyL1', [], ...    % scalar or ny x 1, as StatePenaltyL1 (Inf = hard; empty -> 1e4)
+            'OutputPenaltyL2', [], ...    % scalar or ny x 1 (empty -> 0)
+            'PathConstraintMin', [], ...  % ng x 1 bounds on g = Model.PathConstraintFcn(x_i, u_i), nodes 1..N-1
+            'PathConstraintMax', [], ...
+            'PathConstraintPenaltyL1', [], ... % scalar or ng x 1 (Inf = hard; empty -> 1e4)
+            'PathConstraintPenaltyL2', [], ... % scalar or ng x 1 (empty -> 0)
             'TerminalConstraintMin', [], ... % bounds on Model.TerminalConstraintFcn(x_N)
             'TerminalConstraintMax', [], ...
-            'TerminalConstraintSoftL1', [], ... % as ConstraintSoftL1 (not scaled by interval length)
-            'TerminalConstraintSoftL2', [], ...
+            'TerminalConstraintPenaltyL1', [], ... % as PathConstraintPenaltyL1 (not scaled by interval length)
+            'TerminalConstraintPenaltyL2', [], ...
             'InitialConstraintMin', [], ...  % bounds on Model.InitialConstraintFcn(x_0, u_0) (+-Inf allowed)
             'InitialConstraintMax', [], ...
-            'InitialConstraintSoftL1', [], ... % scalar or ng0 x 1, as ConstraintSoftL1 (Inf = hard; empty -> 1e4)
-            'InitialConstraintSoftL2', [])     % scalar or ng0 x 1 (empty -> 0)
+            'InitialConstraintPenaltyL1', [], ... % scalar or ng0 x 1, as PathConstraintPenaltyL1 (Inf = hard; empty -> 1e4)
+            'InitialConstraintPenaltyL2', [])  % scalar or ng0 x 1 (empty -> 0)
 
         Optimisation = struct( ...
             'Integrator',          'rk4', ... % 'rk4' | 'trapezoidal' | 'irk' (continuous models; 'irk': implicit Runge-Kutta, see integrate)
@@ -425,7 +425,7 @@ classdef rtimpc < handle
                 ocp.zlx = [xL1(:,1), xL1] / 2;  ocp.zux = ocp.zlx;
                 ocp.Zlx = [xL2(:,1), xL2];      ocp.Zux = ocp.Zlx;
             end
-            pc = obj.path_setup(x, Ub(:,1), hasD, d);   % path constraints (output bounds, ConstraintFcn)
+            pc = obj.path_setup(x, Ub(:,1), hasD, d);   % path constraints (output bounds, PathConstraintFcn)
             g0min = pc.gmin(:, 1);  g0max = pc.gmax(:, 1);   % node 0's row bounds as posed (see the linearisation)
             if pc.on   % general QP rows at nodes 0..M (column 1, node 0: InitialConstraintFcn rows only)
                 ng = pc.ng;
@@ -1009,9 +1009,9 @@ classdef rtimpc < handle
                 [~, CN] = obj.output(x, u, false, true);
                 report.TerminalOutputJacobian = rel(CN, fd_jacobian(mdl.TerminalOutputFcn, x));
             end
-            if ~isempty(mdl.ConstraintFcn) && ~isempty(jac.ConstraintFcn)
-                [Cg, Dg] = jac.ConstraintFcn(x, u);
-                J = fd_jacobian(@(v) mdl.ConstraintFcn(v(ix), v(iu)), z);
+            if ~isempty(mdl.PathConstraintFcn) && ~isempty(jac.PathConstraintFcn)
+                [Cg, Dg] = jac.PathConstraintFcn(x, u);
+                J = fd_jacobian(@(v) mdl.PathConstraintFcn(v(ix), v(iu)), z);
                 report.ConstraintJacobianX = rel(Cg, J(:, ix));  report.ConstraintJacobianU = rel(Dg, J(:, iu));
             end
             if ~isempty(mdl.InitialConstraintFcn) && ~isempty(jac.InitialConstraintFcn)
@@ -1042,9 +1042,9 @@ classdef rtimpc < handle
                 Hfd = fd_jacobian(@(v) interval_adjoint(obj, v, p, w), z);
                 report.IntervalHessian = rel(reshape(mdl.IntervalHessianFcn(a{:}), nz, nz), (Hfd + Hfd') / 2);
             end
-            if ~isempty(mdl.ConstraintLagrangianHessianFcn) && ~isempty(mdl.ConstraintFcn)   % of w'g(x, u)
-                ng = numel(mdl.ConstraintFcn(x, u));  w = (1:ng)' / ng;
-                Hfd = fd_jacobian(@(v) constraint_adjoint(mdl.ConstraintFcn, jac.ConstraintFcn, v, nx, w), z);
+            if ~isempty(mdl.ConstraintLagrangianHessianFcn) && ~isempty(mdl.PathConstraintFcn) % of w'g(x, u)
+                ng = numel(mdl.PathConstraintFcn(x, u));  w = (1:ng)' / ng;
+                Hfd = fd_jacobian(@(v) constraint_adjoint(mdl.PathConstraintFcn, jac.PathConstraintFcn, v, nx, w), z);
                 report.ConstraintLagrangianHessian = rel(reshape(mdl.ConstraintLagrangianHessianFcn(x, u, w), nz, nz), (Hfd + Hfd') / 2);
             end
             if nargout == 0
@@ -1591,7 +1591,7 @@ classdef rtimpc < handle
         % 1e-5 also keeps an implicit integrator's Newton tolerance (1e-13) at <= 1e-8 in the result.
         % An absolute step is exact to round-off while eps |x| << 1e-5, i.e. |x| << 1e10.
         % Model.IntervalHessianFcn and Model.ConstraintLagrangianHessianFcn (e.g. CasADi, all nodes in one
-        % call) replace the differences of the dynamics and of the ConstraintFcn rows.
+        % call) replace the differences of the dynamics and of the PathConstraintFcn rows.
             nx = obj.nx;  nu = obj.nu;  M = numel(d);
             ng = size(lam.lg, 1);
             hx = 1e-5;  hu = 1e-5 * su;
@@ -1606,7 +1606,7 @@ classdef rtimpc < handle
             Hrow = [];  rp = [];   % the rows hook's, (nx+nu) x (nx+nu) x M-1 (inner nodes 1..M-1)
             pc = obj.PathNow;
             if ~isempty(mdl.ConstraintLagrangianHessianFcn) && ng > 0 && pc.ngp > 0 && M >= 2
-                rp = numel(pc.yrows) + (1:pc.ngp);   % the ConstraintFcn rows (path_rows' order)
+                rp = numel(pc.yrows) + (1:pc.ngp);   % the PathConstraintFcn rows (path_rows' order)
                 Hrow = mdl.ConstraintLagrangianHessianFcn(Xb(:,2:M), Ub(:,2:M), lam.lg(rp, 2:M));
             end
             for i = 1:M+1
@@ -2047,7 +2047,7 @@ classdef rtimpc < handle
 
         function pc = path_setup(obj, x, u, hasD, d)
         % Constraint rows of this step, stacked: output bounds (rows of y with a finite bound; nodes
-        % 1..M), path constraints (ConstraintFcn; nodes 1..M-1), terminal constraints
+        % 1..M), path constraints (PathConstraintFcn; nodes 1..M-1), terminal constraints
         % (TerminalConstraintFcn; node M), initial constraints (InitialConstraintFcn; node 0).
         % Bounds per node (ng x M+1, column a = node a-1; -+Inf where a row does not apply) and
         % node-level soft weights: per-sample weights x interval length for the output and path rows
@@ -2059,7 +2059,7 @@ classdef rtimpc < handle
             if isempty(ymax), ymax =  inf(ny, 1); end
             ymin = ymin .* ones(ny, 1);  ymax = ymax .* ones(ny, 1);
             yrows = reshape(find(isfinite(ymin) | isfinite(ymax)), [], 1);   % a column also when ny = 1
-            ngp = 0;  if ~isempty(obj.Model.ConstraintFcn), ngp = numel(obj.Model.ConstraintFcn(x, u)); end
+            ngp = 0;  if ~isempty(obj.Model.PathConstraintFcn), ngp = numel(obj.Model.PathConstraintFcn(x, u)); end
             ngt = 0;  if ~isempty(obj.Model.TerminalConstraintFcn), ngt = numel(obj.Model.TerminalConstraintFcn(x)); end
             ng0 = 0;  if ~isempty(obj.Model.InitialConstraintFcn), ng0 = numel(obj.Model.InitialConstraintFcn(x, u)); end
             bnd = @(v, n, s) ternary_num(isempty(v), s * inf(n, 1), v(:)) .* ones(n, 1);
@@ -2068,21 +2068,21 @@ classdef rtimpc < handle
             ip = ny_ + (1:ngp);  it = ny_ + ngp + (1:ngt);  i0 = ny_ + ngp + ngt + (1:ng0);
             gmin = -inf(ng, M+1);  gmax = inf(ng, M+1);
             gmin(1:ny_, 2:M+1) = repmat(ymin(yrows), 1, M);  gmax(1:ny_, 2:M+1) = repmat(ymax(yrows), 1, M);
-            gmin(ip, 2:M) = repmat(bnd(Cn.ConstraintMin, ngp, -1), 1, M-1);
-            gmax(ip, 2:M) = repmat(bnd(Cn.ConstraintMax, ngp,  1), 1, M-1);
+            gmin(ip, 2:M) = repmat(bnd(Cn.PathConstraintMin, ngp, -1), 1, M-1);
+            gmax(ip, 2:M) = repmat(bnd(Cn.PathConstraintMax, ngp,  1), 1, M-1);
             gmin(it, M+1) = bnd(Cn.TerminalConstraintMin, ngt, -1);
             gmax(it, M+1) = bnd(Cn.TerminalConstraintMax, ngt,  1);
             gmin(i0, 1) = bnd(Cn.InitialConstraintMin, ng0, -1);
             gmax(i0, 1) = bnd(Cn.InitialConstraintMax, ng0,  1);
-            yL1 = w(Cn.OutputSoftL1, 1e4, ny);  yL2 = w(Cn.OutputSoftL2, 0, ny);
+            yL1 = w(Cn.OutputPenaltyL1, 1e4, ny);  yL2 = w(Cn.OutputPenaltyL2, 0, ny);
             yL1 = reshape(yL1(yrows), [], 1);  yL2 = reshape(yL2(yrows), [], 1);   % the bounded rows (columns, also when ny = 1)
             dn = [0, d];  e0 = [d(1), zeros(1, M)];  eN = [zeros(1, M), 1];       % per node 0..M
-            L1 = [yL1 .* dn; w(Cn.ConstraintSoftL1, 1e4, ngp) .* dn; w(Cn.TerminalConstraintSoftL1, 1e4, ngt) .* eN; ...
-                  w(Cn.InitialConstraintSoftL1, 1e4, ng0) .* e0];
-            L2 = [yL2 .* dn; w(Cn.ConstraintSoftL2, 0, ngp) .* dn;   w(Cn.TerminalConstraintSoftL2, 0, ngt) .* eN; ...
-                  w(Cn.InitialConstraintSoftL2, 0, ng0) .* e0];
-            hard = [~isfinite(yL1); ~isfinite(w(Cn.ConstraintSoftL1, 1e4, ngp)); ~isfinite(w(Cn.TerminalConstraintSoftL1, 1e4, ngt)); ...
-                    ~isfinite(w(Cn.InitialConstraintSoftL1, 1e4, ng0))];
+            L1 = [yL1 .* dn; w(Cn.PathConstraintPenaltyL1, 1e4, ngp) .* dn; w(Cn.TerminalConstraintPenaltyL1, 1e4, ngt) .* eN; ...
+                  w(Cn.InitialConstraintPenaltyL1, 1e4, ng0) .* e0];
+            L2 = [yL2 .* dn; w(Cn.PathConstraintPenaltyL2, 0, ngp) .* dn;   w(Cn.TerminalConstraintPenaltyL2, 0, ngt) .* eN; ...
+                  w(Cn.InitialConstraintPenaltyL2, 0, ng0) .* e0];
+            hard = [~isfinite(yL1); ~isfinite(w(Cn.PathConstraintPenaltyL1, 1e4, ngp)); ~isfinite(w(Cn.TerminalConstraintPenaltyL1, 1e4, ngt)); ...
+                    ~isfinite(w(Cn.InitialConstraintPenaltyL1, 1e4, ng0))];
             L1(hard, :) = Inf;  L1(isnan(L1)) = Inf;   % Inf x 0 (a row at a node where it does not apply) is unused
             L2(isnan(L2)) = 0;
             pc = struct('on', ng > 0, 'ng', ng, 'yrows', yrows, 'ngp', ngp, 'ngt', ngt, 'ng0', ng0, 'hasD', hasD, ...
@@ -2113,8 +2113,8 @@ classdef rtimpc < handle
                 if kind == 2
                     gp = zeros(pc.ngp, 1);  Cp = zeros(pc.ngp, nx);  Dp = zeros(pc.ngp, nu);
                 else
-                    gp = obj.Model.ConstraintFcn(x, u);
-                    if jac, [Cp, Dp] = constraint_jacobian(obj.Model.ConstraintFcn, obj.Jacobian.ConstraintFcn, x, u); end
+                    gp = obj.Model.PathConstraintFcn(x, u);
+                    if jac, [Cp, Dp] = constraint_jacobian(obj.Model.PathConstraintFcn, obj.Jacobian.PathConstraintFcn, x, u); end
                 end
                 g = [g; gp(:)];
                 if jac, C = [C; Cp];  D = [D; Dp]; end
@@ -2297,9 +2297,9 @@ classdef rtimpc < handle
             nx = obj.nx;  N = obj.PredictionHorizon;
             xmin = obj.Constraints.StateMin(:); if isempty(xmin), xmin = -inf(nx, 1); end
             xmax = obj.Constraints.StateMax(:); if isempty(xmax), xmax =  inf(nx, 1); end
-            L1 = obj.Constraints.StateSoftL1;  if isempty(L1), L1 = 1e4; end
-            L2 = obj.Constraints.StateSoftL2;  if isempty(L2), L2 = 0;   end
-            L1 = per_sample(L1, 'StateSoftL1');  L2 = per_sample(L2, 'StateSoftL2');
+            L1 = obj.Constraints.StatePenaltyL1;  if isempty(L1), L1 = 1e4; end
+            L2 = obj.Constraints.StatePenaltyL2;  if isempty(L2), L2 = 0;   end
+            L1 = per_sample(L1, 'StatePenaltyL1');  L2 = per_sample(L2, 'StatePenaltyL2');
             if ~isempty(obj.GridNow) && numel(obj.GridNow.d) == M && any(obj.GridNow.d ~= 1)
                 tau = obj.GridNow.tau;
                 [S1, S2] = deal(zeros(nx, M));
@@ -2322,7 +2322,7 @@ classdef rtimpc < handle
         end
 
         function [xmin, xmax] = hard_state_bounds(obj, M)
-        % The state bounds of nodes 1..M (nx x M) with StateSoftL1 = Inf (soft ones relaxed to +-Inf)
+        % The state bounds of nodes 1..M (nx x M) with StatePenaltyL1 = Inf (soft ones relaxed to +-Inf)
             [xmin, xmax, L1] = state_bounds(obj, M);
             xmin = xmin .* ones(1, M);  xmax = xmax .* ones(1, M);
             xmin(isfinite(L1)) = -inf;  xmax(isfinite(L1)) = inf;

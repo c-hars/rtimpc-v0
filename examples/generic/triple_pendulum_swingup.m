@@ -53,7 +53,7 @@ nmpc.Weights.RateR = RateR;
 nmpc.Constraints.InputMin = -22;  nmpc.Constraints.InputMax = 22;
 nmpc.Constraints.StateMin = [-inf(3,1); -0.7; -inf(3,1); -3];
 nmpc.Constraints.StateMax = [ inf(3,1);  0.7;  inf(3,1);  3];
-nmpc.Constraints.StateSoftL1 = 1e4;                      % soft rail and speed limits
+nmpc.Constraints.StatePenaltyL1 = 1e4;                   % soft rail and speed limits
 op = nmpc.Optimisation;
 op.IntegratorSubsteps = 2;                               % RK4, 2 steps per interval (20 ms on the coarse ones)
 op.DecimationFactors = [1 Coarse];  op.StepsPerTier = nfine;

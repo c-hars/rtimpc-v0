@@ -35,7 +35,7 @@ function S = ethylene_oxide()
     o.Weights.TerminalCostFcn = @cost;
     o.Constraints.InputMin = 0.1;  o.Constraints.InputMax = 3;
     o.Constraints.RateMin = -0.02 * Ts;  o.Constraints.RateMax = 0.02 * Ts;
-    o.Constraints.StateMin = zeros(4, 1);  o.Constraints.StateMax = inf(4, 1);  o.Constraints.StateSoftL1 = Inf;
+    o.Constraints.StateMin = zeros(4, 1);  o.Constraints.StateMax = inf(4, 1);  o.Constraints.StatePenaltyL1 = Inf;
     op = o.Optimisation;  op.Hessian = 'exact';  op.ComputeCost = true;  op.SQPMaxIter = 50;
     % QP complementarity: an active bound is left t = TolComp / lam short of its value. The
     % economic cost is ~0.02, and the rate limits' multipliers are ~3e-4, so the IPM's absolute

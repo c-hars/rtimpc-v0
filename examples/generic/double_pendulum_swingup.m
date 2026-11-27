@@ -30,7 +30,7 @@ nmpc.Constraints.InputMin = -Fmax;
 nmpc.Constraints.InputMax =  Fmax;
 nmpc.Constraints.StateMin = [-Xmax; -inf(5,1)];          % only the cart position is bounded
 nmpc.Constraints.StateMax = [ Xmax;  inf(5,1)];
-nmpc.Constraints.StateSoftL1 = 1e5;                      % soft track limit: cost per metre of violation (Inf = hard)
+nmpc.Constraints.StatePenaltyL1 = 1e5;                   % soft track limit: cost per metre of violation (Inf = hard)
 nmpc.Optimisation.SQPMaxIter = SQPIter;
 
 jac = nmpc.validate([0.2; 2.5; -1.3; 0.4; 1.1; -0.8], 7.0);   % Jacobians vs central differences
@@ -95,7 +95,7 @@ function print_report(X, U, tc, qpit, sqpit, flag, rebuilt, jac, nmpc, Fmax, Xma
     fprintf('  Weights    Qy = diag(%s), Qyf = diag(%s), R = %g\n', mat2str(diag(nmpc.Weights.Qy)'), ...
         mat2str(diag(nmpc.Weights.Qyf)'), nmpc.Weights.R)
     fprintf('  Bounds     |F| <= %g N (hard),  |x| <= %g m (soft, L1 = %g per m)\n', Fmax, Xmax, ...
-        nmpc.Constraints.StateSoftL1(1))
+        nmpc.Constraints.StatePenaltyL1(1))
     fprintf('  Solver     cold start: SQP (<= %d its), then <= %d SQP its/step, %s IPM\n', ...
         nmpc.Optimisation.FirstStepSQPMaxIter, nmpc.Optimisation.SQPMaxIter, nmpc.Optimisation.QPSolver)
     fprintf('  Jacobians  max rel. error %.1e vs central differences  [%s]\n', jerr, okfail(jerr < 1e-6))
