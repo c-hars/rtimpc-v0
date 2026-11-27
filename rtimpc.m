@@ -83,9 +83,7 @@ classdef rtimpc < handle
             'RateR', [], ...              % nu x nu (or nu x nu x N, per change i = 0..N-1) weight on input changes u_i - u_{i-1} (empty -> none)
             'StageCostFcn', [], ...       % optional @(x_i, u_i, ref_i) [l, grad, Hess] (in [x_i; u_i]) added at nodes 0..N-1, x the interval length (ref_i: ref column i+1, as InputReference's for u_i)
             'StageCostVectorised', false, ... % true: StageCostFcn takes all nodes at once, @(X, U, Ref) (columns i = nodes 0..M-1), returning l 1 x M, grad (nx+nu) x M, Hess (nx+nu) x (nx+nu) x M (as IntervalFcn)
-            'TerminalCostFcn', [], ...    % optional @(xN, u_last, ref_N) [V, grad, Hess] added at node N (grad, Hess in x_N, or in [x_N; u_last])
-            'TerminalLQR', 'off', ...     % 'off' | 'fixed' | 'adaptive': LQR cost-to-go tail at node N, from the DARE at the plan's end ('fixed': once; 'adaptive': every step); needs TerminalTarget
-            'TerminalTarget', [])         % @(ref_N) xbar: state target of the LQR tail (required with TerminalLQR)
+            'TerminalCostFcn', [])        % optional @(xN, u_last, ref_N) [V, grad, Hess] added at node N (grad, Hess in x_N, or in [x_N; u_last])
 
         Constraints = struct( ...
             'InputMin', [], ...           % nu x 1 (-Inf allowed); empty -> unbounded
@@ -187,9 +185,6 @@ classdef rtimpc < handle
         HasDCache = []            % output_has_D result for the current Jacobian.OutputFcn
         PathNow = []              % path-constraint rows of the step in progress (path_setup)
         BarrierNow = 0            % Optimisation.BarrierHomotopy: the barrier weight of the solve in progress (0: the OCP itself)
-        TerminalP = []            % TerminalLQR: the cost-to-go matrix in use ('fixed': computed once)
-        TailNow = []              % TerminalLQR tail of the step in progress (P, xbar), for nlp_cost
-        TailFrozen = false        % CandidateGuess: the candidate solve keeps TerminalP (the warm solve's), also 'adaptive'
         QPDual = []               % multipliers of the last QP solved (as passed to the solver, i.e. rate-augmented)
         QPDualInit = []           % multipliers to start the next QP from (QPWarmStart)
         InertiaDelta = 0          % the last nonzero inertia-correction delta of a solved Riccati QP (the next QP's hint; IPOPT keeps delta_last from successes only)
@@ -219,7 +214,6 @@ classdef rtimpc < handle
             obj.QPDual = [];
             obj.Multipliers = [];
             obj.NLPDual = [];
-            obj.TerminalP = [];   % TerminalLQR 'fixed': recomputed at the next step
             obj.InertiaDelta = 0;
         end
 
@@ -306,12 +300,7 @@ classdef rtimpc < handle
             else
                 [opts.InitialGuess.X, opts.InitialGuess.U] = cg(x);
             end
-            % TerminalLQR: the same OCP for both solves, so their costs compare: the warm solve's tail
-            % (reset() clears it; 'adaptive' would relinearise it at the candidate's own terminal point)
-            obj.TerminalP = warm.TerminalP;  obj.TailFrozen = ~isempty(warm.TerminalP);
-            unfreeze = onCleanup(@() set_tail_frozen(obj, false));
             [uc, ic] = obj.solve_step(x, ref, opts);
-            clear unfreeze
             keep = ic.ExitFlag == 1 && (info.ExitFlag ~= 1 || ic.Cost < info.Cost);
             if keep
                 [u, info, ic] = deal(uc, ic, info);
@@ -369,9 +358,6 @@ classdef rtimpc < handle
             if isempty(opts.OutputWeights) && n_eff < N   % a shorter horizon ends at sample n_eff:
                 W(:,:,n_eff) = W(:,:,N);                  % the terminal weight goes there
             end
-            if ~strcmpi(obj.Weights.TerminalLQR, 'off')   % the LQR tail replaces the terminal output weight
-                W(:,:,n_eff) = 0;
-            end
             % Shooting grid: M intervals of d(i) fine samples (all 1 without decimation). Costs are
             % given per fine sample; aggregate them onto the nodes (held-x) or keep the samples
             % inside coarse intervals for the exact cost.
@@ -418,19 +404,6 @@ classdef rtimpc < handle
             else
                 [Xb, Ub] = obj.shift_plan(obj.Xbar, obj.Ubar, obj.PlanTimes, G.tau);
                 max_sqp = op.SQPMaxIter;
-            end
-
-            % LQR terminal cost: P at the plan's terminal point (once, or every step), target from ref_N
-            obj.TailNow = [];  dare_ok = true;
-            lqr_mode = lower(string(obj.Weights.TerminalLQR));
-            if lqr_mode ~= "off"
-                if isempty(obj.Weights.TerminalTarget)
-                    error('rtimpc:TerminalTarget', 'Weights.TerminalLQR needs Weights.TerminalTarget = @(ref_N) xbar.')
-                end
-                if (lqr_mode == "adaptive" && ~obj.TailFrozen) || isempty(obj.TerminalP)
-                    [obj.TerminalP, dare_ok] = obj.terminal_lqr(Xb(:,end), Ub(:,end));
-                end
-                obj.TailNow = struct('P', obj.TerminalP, 'xbar', obj.Weights.TerminalTarget(ref(:,end)));
             end
 
             % QP warm start: the previous step's multipliers, shifted one node like the plan
@@ -518,7 +491,6 @@ classdef rtimpc < handle
             info.QPAcceptable = 0;    % QPs ended by the IPM's acceptable termination (TolAcceptable), not its tolerances
             info.QPInertiaCapped = 0; % QPs whose inertia correction reached its cap (the Riccati IPM's delta_max)
             info.FeasibilityResidual = NaN;   % mean violation the last Byrd-Omojokun feasibility QP could not remove (NaN: none ran; Inf: it was unsolved)
-            info.DAREConverged = dare_ok;     % TerminalLQR: this step's Riccati iteration met its tolerance (true when none ran)
             obj.IntegratorUnconverged = 0;
             info.InputClip = 0;       % the largest input-bound clip of the plan's inputs (round-off after a solved QP; more: a step from an unsolved QP's iterate, projected)
 
@@ -661,12 +633,6 @@ classdef rtimpc < handle
                     J0 = J0 + Vf;
                 end
                 if term_u && ~rate.on, rate.on = true;  obj.RateNow.on = true; end
-                if ~isempty(obj.TailNow)   % (x - xbar)'P(x - xbar): QP objective is J/2
-                    eN = Xb(:,M+1) - obj.TailNow.xbar;
-                    ocp.Q(:,:,M+1) = ocp.Q(:,:,M+1) + obj.TailNow.P;
-                    ocp.q(:,M+1)   = ocp.q(:,M+1)   + obj.TailNow.P * eN;
-                    J0 = J0 + eN' * obj.TailNow.P * eN;
-                end
                 if pc.on   % path constraints linearised at the plan: lg <= Cg dx + Dg du <= ug
                     pc.gmin(:,1) = g0min;  pc.gmax(:,1) = g0max;
                     for a = 1:M+1
@@ -963,7 +929,6 @@ classdef rtimpc < handle
                 if do_reset, obj.reset(); end
             end
 
-            if ~isempty(obj.TerminalP) && ~all(isfinite(obj.TerminalP(:))), obj.TerminalP = []; end   % a failed Riccati solve is not kept ('fixed')
             info.SQPIterations = sqp_iter;
             info.SQPStepNorm = step_norm;
             if has_xb
@@ -1126,10 +1091,6 @@ classdef rtimpc < handle
 
         function set_compute_cost(obj, v)
             obj.Optimisation.ComputeCost = v;
-        end
-
-        function set_tail_frozen(obj, v)
-            obj.TailFrozen = v;
         end
 
         function names = state_props(obj)
@@ -1742,15 +1703,6 @@ classdef rtimpc < handle
             end
         end
 
-        function [P, ok] = terminal_lqr(obj, xN, uN)
-        % Infinite-horizon LQR cost-to-go at (xN, uN): DARE on the one-sample discrete linearisation
-        % with the stage weights C'Qy C (output Jacobian at xN) and R, in cost (J) units
-            [~, A, B] = obj.integrate(xN, uN, 1, obj.node_param(Inf));
-            [~, C] = obj.output(xN, uN, false);
-            Q = C' * obj.Weights.Qy * C;
-            [P, ok] = rtimpc.dare(A, B, (Q + Q')/2, obj.Weights.R);
-        end
-
         function [alpha, nu_merit, ls, sol] = merit_line_search(obj, Xb, Ub, sol, ocp, x, ref, uref, W, su, J0, nu_merit, qp_solved, accuracy_test)
         % Armijo backtracking on the l1 merit  phi = J + sum w .* |gaps| + w0 .* |x_0 - x| + hard state
         % bound, row and input-rate-limit violations weighted likewise; soft-bound violations are
@@ -2063,10 +2015,6 @@ classdef rtimpc < handle
             end
             if ~isempty(obj.Weights.TerminalCostFcn)
                 J = J + obj.Weights.TerminalCostFcn(X(:,M+1), U(:,M), ref(:,M));
-            end
-            if ~isempty(obj.TailNow)
-                eN = X(:,M+1) - obj.TailNow.xbar;
-                J = J + eN' * obj.TailNow.P * eN;
             end
             J = J + obj.soft_penalty(X) + obj.path_penalty(X, U) + obj.barrier_cost(X, U);
             if ~isempty(obj.RateNow) && obj.RateNow.on, J = J + rtimpc.rate_cost(U, obj.RateNow); end
