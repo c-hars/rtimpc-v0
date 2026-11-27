@@ -1,14 +1,19 @@
 %% rtimpc example: triple pendulum swing-up at 100 Hz
 %
-% The identified triple pendulum on a cart of Glück, Eder & Kugi ("Swing-up control of a triple pendulum on a cart with experimental validation", Automatica 49(3), 2013): three arms swung from all hanging at rest to all upright, under the rig's limits (rail |s| <= 0.7 m, cart speed |s'| <= 3 m/s, acceleration |s''| <= 22 m/s^2; the input is the cart acceleration). The paper uses an offline trajectory and a time-variant Riccati controller; here one NMPC does it all, from a cold start: no offline plan, the first guess is the rig left hanging with zero input.
+% A triple pendulum on a cart is swung up, all three arms from hanging at rest to upright, by one NMPC from a cold start.
 %
-% Set-up:
+% The rig is the identified one of Glück, Eder & Kugi ("Swing-up control of a triple pendulum on a cart with experimental validation", Automatica 49(3), 2013), with its limits: rail |s| <= 0.7 m, cart speed |s'| <= 3 m/s, acceleration |s''| <= 22 m/s^2 (the input is the cart acceleration). The paper uses an offline trajectory and a time-variant Riccati controller. Here one NMPC does it all: there is no offline plan, and the first guess is the rig hanging at rest, with zero input.
+%
+% Setup:
 %   - 100 Hz feedback, 4 s horizon on a two-tier grid: 0.08 s at 10 ms, then 40 ms intervals (DecimationFactors [1 4], StepsPerTier 8; N = 106 instead of 400). Its closed loops stay close to the full 10 ms grid's, at roughly a quarter of its step time.
-%   - Cost as the NMPC suite's triple_pendulum, per 10 ms sample (its 20 Hz weights x 0.2): arm angles, cart, velocities and input; terminal weight 10x. The rail and cart-speed limits are soft.
+%   - Cost per 10 ms sample on the arm angles, cart, velocities and input; terminal weight 10x. The rail and cart-speed limits are soft.
 %   - Input-rate weight RateR = 10 per 10 ms change (rtimpc applies it per sample of the fine grid, so a 40 ms interval's change gets 10/4: the same smoothness penalty on any grid). Without it the input chatters at the bounds.
 %   - Cold first step: up to 300 SQP iterations, unconverged but enough to set up the swing (run to convergence, the first plan swings faster but pushes the cart over the soft rail limit). Then 2 SQP iterations per step with the merit line search. A single iteration per step fails from this start: the swing is chaotic, and plain RTI's full steps overshoot from the unconverged first plan.
 %   - After a failed step the next one keeps the plan (OnFailure 'keep-primal'): no cold restart, which would cost a 300-iteration step inside a 10 ms budget.
-% Analytic Jacobians (checked by validate); all shooting intervals integrated in one vectorised call (Model.IntervalFcn: RK4 with sensitivities, as rtimpc's own). Step times are plain MATLAB, far from the 10 ms budget: the example shows the controller's behaviour, not real-time execution.
+%
+% Shows: analytic Jacobians (checked by validate); all shooting intervals integrated in one vectorised call (Model.IntervalFcn: RK4 with sensitivities, as rtimpc's own).
+%
+% Step times are plain MATLAB, far from the 10 ms budget: the example shows the controller's behaviour, not real-time execution.
 
 clear
 here = fileparts(mfilename('fullpath'));
@@ -24,7 +29,7 @@ SaveRun = '';                                            % e.g. 'triple_pendulum
 ColdStart = '';                                          % e.g. 'triple_pendulum_cold.mat': saves the first plan, then reuses it as the first step's initial guess (skips the cold solve)
 
 N = round(Horizon / Ts);  nfine = round(FineTime / Ts);
-w = 0.2;                                                 % per-sample weights: the suite's (per 50 ms) x 10/50
+w = 0.2;                                                 % weights per 10 ms sample: the per-50 ms weights x 10/50
 Q = diag([100, 100, 100, 10, 0.1, 0.1, 0.1, 1]);         % phi1..3, s, phi1..3', s'
 
 nmpc = rtimpc(8, 1, 8, Ts, N);                           % x = [phi1; phi2; phi3; s; phi1'; phi2'; phi3'; s'], u = s''

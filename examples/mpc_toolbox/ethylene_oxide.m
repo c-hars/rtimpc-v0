@@ -1,13 +1,26 @@
 function S = ethylene_oxide()
 %% rtimpc example: economic MPC of an ethylene oxide reactor (MPC Toolbox example)
 %
-% Rebuilt from MATLAB's "Economic MPC Control of Ethylene Oxide Production" (nlmpc with a custom cost, in Simulink), its closed loop as a script. The model is written here from the same equations; no MathWorks files are needed.
+% Rebuilt from MATLAB's "Economic MPC Control of Ethylene Oxide Production" (nlmpc with a custom cost, in Simulink), its closed loop as a script: economic MPC of a chemical reactor, maximising its product output while two disturbances step.
 %
-% An ethylene oxidation CSTR (Durand, Ellis, Christofides 2016), x = [gas density; C2H4; C2H4O; temperature], u = [C2H4 feed concentration (MV); jacket temperature Tc; C2H4 feed rate], the last two measured disturbances; all dimensionless. Economic objective: maximise the C2H4O production rate at the end of the horizon, i.e. minimise V = -(u3/u1) x3 x4 at node p. Ts = 25 s, horizon 2; prediction model: 2500 forward-Euler steps of 0.01 s; 0.1 <= u1 <= 3, |du1| <= 0.5 per sample; x >= 0 (hard). Tc steps 1.1 -> 1.15 at t = 100 s, the feed rate 0.175 -> 0.25 at 200 s; 300 s from the steady state at u = [0.5 1.1 0.175]. Plant: the continuous model by ode15s. The original's figures: first move 1.0 (rate-limited from 0.5); optimal production rates 0.0156 (u1 = 1.6), then 0.0135 and 0.0195.
+% Problem
+%   Reactor    an ethylene oxidation CSTR (Durand, Ellis, Christofides 2016); all quantities dimensionless
+%   State      x = [gas density; C2H4; C2H4O; temperature]
+%   Input      u = [C2H4 feed concentration (MV); jacket temperature Tc; C2H4 feed rate]; the last two are measured disturbances
+%   Cost       maximise the C2H4O production rate at the end of the horizon, i.e. minimise V = -(u3/u1) x3 x4 at node p
+%   Horizon    2 steps of Ts = 25 s; prediction model: 2500 forward-Euler steps of 0.01 s
+%   Bounds     0.1 <= u1 <= 3, |du1| <= 0.5 per sample, x >= 0 (hard)
+%   Scenario   300 s from the steady state at u = [0.5 1.1 0.175]; Tc steps 1.1 -> 1.15 at t = 100 s, the feed rate 0.175 -> 0.25 at 200 s
+%   Plant      the continuous model by ode15s
 %
-% Shows: an economic (non-tracking) cost as Weights.TerminalCostFcn with its gradient and Hessian, Hessian 'exact', input rate limits, a discrete model returning its own Jacobians, time-varying disturbances read by a nested model function.
+% Shows: an economic (non-tracking) cost as Weights.TerminalCostFcn with its gradient and Hessian, Hessian 'exact', input rate limits, a discrete model returning its own Jacobians, and time-varying disturbances read by a nested model function.
 %
-% Parity with nlmpc (same OCP): same first move (1.0) and production rates at 100 and 300 s (0.0153, 0.0193); at 200 s rtimpc 0.0135, nlmpc 0.0131 (optimum 0.0135). Solved at nlmpc's own closed-loop states, rtimpc's cost matches or is lower (by at most 8e-7).
+% Result: the production rate at the end of each phase (just before the next disturbance step), against the steady-state maximum given in the original example:
+%   t        maximum   rtimpc   nlmpc
+%   100 s    0.0156    0.0153   0.0153
+%   200 s    0.0135    0.0135   0.0131
+%   300 s    0.0195    0.0193   0.0193
+% Both make the same first move, 1.0 (rate-limited from 0.5). Each step's OCP, solved by rtimpc at the states nlmpc's closed loop visited, reaches the same optimal cost as nlmpc's solve or a lower one (by at most 8e-7). These figures stand in for the verification suite, which will hold the comparison and its setup once published.
 
     here = fileparts(mfilename('fullpath'));
     root = fullfile(here, '..', '..');  addpath(root, fullfile(root, 'qp'));
@@ -62,7 +75,7 @@ function S = ethylene_oxide()
             X(:, k+1) = xp;  U(k) = u;  lastMV = u;
         end
         S = struct('X', X, 'U', U, 'rate', P, 'production', sum(P), 'time', t, 'flag', flag, 'iter', it, 'cost', J);
-        fprintf('%-7s first move %.7f | u at 75/175/275 s %.4f %.4f %.4f | rate at 100/200/300 s %.5f %.5f %.5f (optima 0.0156 0.0135 0.0195) | sum %.6f | step %.0f ms median, %.0f ms max | iterations median %g, max %g | flags %s\n', ...
+        fprintf('%-7s first move %.7f | u at 75/175/275 s %.4f %.4f %.4f | rate at 100/200/300 s %.5f %.5f %.5f (maxima 0.0156 0.0135 0.0195) | sum %.6f | step %.0f ms median, %.0f ms max | iterations median %g, max %g | flags %s\n', ...
             name, U(1), U(4), U(8), U(12), P(4), P(8), P(12), sum(P), 1e3*median(t), 1e3*max(t), median(it), max(it), mat2str(unique(flag)));
     end
 end

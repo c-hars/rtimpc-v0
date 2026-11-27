@@ -1,8 +1,18 @@
 %% rtimpc example: hexacopter tracking a 3D figure-8
 %
-% A hexacopter (13 states: position, body-frame velocity, attitude quaternion, body rates; 6 rotor thrusts as inputs) flies a 3D figure-8 (8 m x 4 m x 8 m) in one 6 s lap, starting on the path at its velocity. The plant is open-loop unstable; NMPC runs at 20 Hz with a 2 s horizon and tracks position and yaw (via the quaternion's z part), and damps the roll and pitch rates. Weights by Bryson's rule. The quaternion's unit norm is not constrained: the dynamics preserve it (up to integration error, reported), and the plant renormalises after each step. Shows: a larger model (nx = 13, nu = 6) with analytic Jacobians, a reference that varies along the horizon, an input reference (hover thrust), real-time iterations.
+% A hexacopter flies one 6 s lap of a 3D figure-8 (8 m x 4 m x 8 m), starting on the path at its velocity.
 %
-% Controller = 'nlmpc' runs MATLAB's nlmpc (Model Predictive Control Toolbox) on the same OCP for comparison: the same RK4 discretisation, cost (custom cost function with its gradient) and bounds, solved to convergence by fmincon at every step. It takes seconds per step. nlmpcMaxIter caps nlmpc's SQP iterations from the second step on, as close to RTI as nlmpc allows: the capped solution is applied (UseSuboptimalSolution), with ConstraintTolerance 1e3 so that an iterate with open gaps is not rejected (nlmpc would otherwise hold the last input).
+% Problem
+%   State      13: position, body-frame velocity, attitude quaternion, body rates
+%   Input      6 rotor thrusts
+%   NMPC       20 Hz, 2 s horizon; tracks position and yaw (via the quaternion's z part) and damps the roll and pitch rates; weights by Bryson's rule
+%   The plant is open-loop unstable. The quaternion's unit norm is not constrained: the dynamics preserve it (up to integration error, reported), and the plant renormalises after each step.
+%
+% Shows: a larger model (nx = 13, nu = 6) with analytic Jacobians, a reference that varies along the horizon, an input reference (hover thrust), and real-time iterations.
+%
+% Comparison with nlmpc (Controller = 'nlmpc'; needs the Model Predictive Control Toolbox):
+%   - Same OCP: the same RK4 discretisation, cost (a custom cost function with its gradient) and bounds, solved to convergence by fmincon at every step. It takes seconds per step.
+%   - nlmpcMaxIter caps nlmpc's SQP iterations from the second step on, as close to RTI as nlmpc allows. The capped solution is applied (UseSuboptimalSolution), with ConstraintTolerance 1e3 so that an iterate with open gaps is not rejected (nlmpc would otherwise hold the last input).
 
 clear
 here = fileparts(mfilename('fullpath'));

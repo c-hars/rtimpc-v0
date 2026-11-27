@@ -1,13 +1,24 @@
 function R = truck_trailer()
 %% rtimpc example: truck-and-trailer reverse parking between obstacles (MPC Toolbox example)
 %
-% Rebuilt from MATLAB's "Truck and Trailer Automatic Parking Using Multistage Nonlinear MPC" (nlmpcMultistage). One trajectory-planning OCP, solved cold by SQP (no closed loop). The model and the obstacle distances are written here; no MathWorks files are needed.
+% Rebuilt from MATLAB's "Truck and Trailer Automatic Parking Using Multistage Nonlinear MPC" (nlmpcMultistage): a truck reverses its trailer into a parking bay between two obstacles, planned as a single OCP (no closed loop), cold-solved to convergence by SQP from a waypoint guess.
 %
-% x = [x; y; theta (trailer heading); beta (truck relative to trailer)], u = [alpha (steering); v (truck speed)], hitch M = 1, truck L1 = 6 x W1 = 2.5, trailer L2 = 10 x W2 = 2.5 (m); p = 40 steps of Ts = 0.5 s (20 s), implicit trapezoidal rule, cost sum u_k'u_k, |alpha| <= pi/4, |v| <= 10, |beta| <= pi/2 (hard), terminal state [0 -25 pi/2 0] (hard), and truck and trailer keep 1 m from two rectangular obstacles (17.5 x 20 m, centred at (+-11.25, -20)) at nodes 1..p-1 (hard). Initial guess: the original's waypoint heuristic.
+% Problem
+%   State      x = [x; y; theta; beta]: trailer rear position, trailer heading, truck angle relative to the trailer
+%   Input      u = [alpha; v]: steering angle, truck speed
+%   Vehicle    truck 6 x 2.5 m, trailer 10 x 2.5 m, hitch 1 m
+%   Horizon    40 steps of 0.5 s (20 s), implicit trapezoidal rule
+%   Cost       sum of u_k'u_k
+%   Bounds     |alpha| <= pi/4, |v| <= 10, |beta| <= pi/2
+%   Terminal   x_N = [0; -25; pi/2; 0]
+%   Obstacles  two 17.5 x 20 m rectangles centred at (+-11.25, -20); truck and trailer keep 1 m clear
+%   All constraints are hard.
 %
-% Shows: nonlinear path constraints (Model.PathConstraintFcn, Jacobian by complex step through a polygon-distance function), a hard terminal-state constraint, an initial guess for a cold solve.
+% Initial guess (the original example's heuristic): straight lines in (x, y, theta) from the start to a waypoint above the obstacles, (0, 10, pi/4), then to the target; beta = 0 and u = 0 throughout. It is not dynamically consistent, but it sets the route, and so the local optimum SQP finds.
 %
-% Parity with nlmpcMultistage (same OCP and guess): both park feasibly with the clearance held; rtimpc finds a different local optimum with a lower cost (200.7 vs 251.8).
+% Shows: nonlinear path constraints (Jacobian by complex step through a polygon-distance function), a hard terminal-state constraint, and an initial guess for a cold solve.
+%
+% Result: on the same setup, rtimpc and nlmpcMultistage both park with the clearance held; rtimpc finds a different local optimum, with a lower cost (200.7 vs 251.8). These figures stand in for the verification suite, which will hold the comparison and its setup once published.
 
     here = fileparts(mfilename('fullpath'));
     root = fullfile(here, '..', '..');  addpath(root, fullfile(root, 'qp'));
@@ -34,7 +45,7 @@ function R = truck_trailer()
     o.Optimisation = op;
 
     Xg = initial_guess(x0, target, p);
-    Xg(:, p+1) = Xg(:, p);   % as the example's guess: its last block repeats node p-1's state
+    Xg(:, p+1) = Xg(:, p);   % the last node repeats node p-1's state, as in the original's guess
     Ug = zeros(2, p);
     guess = struct('X', Xg, 'U', Ug);
     t0 = tic;
@@ -75,7 +86,7 @@ function dx = dynamics(x, u, par)
 end
 
 function g = collision_rows(x, par)
-% 1 m - distance from [trailer; truck] to each obstacle, ordered [trailer-obs1; trailer-obs2; truck-obs1; truck-obs2] (the example's order); -10 distance when overlapping
+% 1 m - distance from [trailer; truck] to each obstacle, ordered [trailer-obs1; trailer-obs2; truck-obs1; truck-obs2]; -10 distance when overlapping
     th = x(3);  th1 = x(3) + x(4);
     trailer = rect(x(1) + par.L2/2*cos(th), x(2) + par.L2/2*sin(th), th, par.L2, par.W2);
     truck   = rect(x(1) + par.L2*cos(th) + (par.M + par.L1/2)*cos(th1), ...
@@ -124,7 +135,7 @@ function d = point_segment(q, a, b)
 end
 
 function X = initial_guess(x0, target, p)
-% The example's waypoint heuristic: straight-line pieces through one waypoint (0, 10, pi/4) when starting at y >= -5, else two ((x0 +- 10, 10, pi/6), (0, 10, pi/3)); beta 0
+% The original example's waypoint heuristic: straight-line pieces through one waypoint (0, 10, pi/4) when starting at y >= -5, else two ((x0 +- 10, 10, pi/6), (0, 10, pi/3)); beta 0
     if x0(2) >= -5
         p1 = round(p/2);  p2 = p - p1 + 1;
         W = [0; 10; pi/4];
