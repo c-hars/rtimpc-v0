@@ -27,6 +27,7 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
         opts.Scale    (1,1) double = 0       % Ruiz passes (see dense_qp_ipm)
     end
 
+    ocp = ocp_qp_broadcast_bounds(ocp);   % single-column bounds held over the horizon
     A = ocp.A; B = ocp.B; c = ocp.c;
     [nx, nu, N] = size(B);
     nz = nu*N;
@@ -116,6 +117,19 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
             W1 = [W1; z1];  W2 = [W2; z2]; %#ok<AGROW>
         end
     end
+    % Soft input bounds (zlu, zuu, Zlu, Zuu): those entries leave the box and become soft rows on z
+    lb = ocp.lb(:);  ub = ocp.ub(:);  srow = false(nz, 1);
+    if isfield(ocp, 'zlu')
+        zlu = reshape(ocp.zlu .* ones(nu, N), [], 1);  zuu = reshape(ocp.zuu .* ones(nu, N), [], 1);
+        Zlu = zeros(nz, 1);  Zuu = Zlu;
+        if isfield(ocp, 'Zlu'), Zlu = reshape(ocp.Zlu .* ones(nu, N), [], 1);  Zuu = reshape(ocp.Zuu .* ones(nu, N), [], 1); end
+        srow = (isfinite(lb) & isfinite(zlu)) | (isfinite(ub) & isfinite(zuu));
+        if any(srow)
+            I = eye(nz);  G = [G; I(srow, :)];  cl = [cl; lb(srow)];  cu = [cu; ub(srow)];
+            W1 = [W1; zlu(srow), zuu(srow)];  W2 = [W2; Zlu(srow), Zuu(srow)];
+            lb(srow) = -Inf;  ub(srow) = Inf;
+        end
+    end
     soft_args = {};
     if any(isfinite(W1(:)))
         soft_args = {'PenaltyL1', W1};
@@ -128,13 +142,14 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
     % Stationarity in the OCP's units: the condensed gradient residual is Theta'*r_x + r_u, with r_x, r_u the per-stage residuals the Riccati IPM tests. For unstable dynamics over long horizons Theta grows exponentially, and an absolute 1e-8 on the condensed residual lies below round-off (cart-pole, 4 s: H spans 1e3..1e10, and solved QPs ran to MaxIter).
     o = opts;  o.TolStat = opts.TolStat * max(1, norm(Th, 1));
     args = namedargs2cell(o);
-    [z, qinfo] = dense_qp_ipm(H, g, ocp.lb(:), ocp.ub(:), G, cl, cu, args{:}, soft_args{:}, 'z_init', z_init);
+    [z, qinfo] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, args{:}, soft_args{:}, 'z_init', z_init);
 
     % --- Expand: states, bound multipliers, then dynamics multipliers by the adjoint recursion
     u = reshape(z, nu, N);
     x = [ocp.x0, reshape(Th*z + w, nx, N)];
     lam_lbx = zeros(nx, N+1);  lam_ubx = zeros(nx, N+1);
-    ns = nnz(bnd);  sr = 1:ns;  gr = ns+1 : numel(cl);    % state-bound rows, then general rows
+    ns = nnz(bnd);  sr = 1:ns;  nur = nnz(srow);
+    gr = ns+1 : numel(cl) - nur;  ur = numel(cl) - nur + 1 : numel(cl);   % state-bound rows, general rows, soft input rows
     tmp = zeros(nx*N, 1); tmp(bnd) = qinfo.lam_cl(sr); lam_lbx(:,2:end) = reshape(tmp, nx, N);
     tmp = zeros(nx*N, 1); tmp(bnd) = qinfo.lam_cu(sr); lam_ubx(:,2:end) = reshape(tmp, nx, N);
     [lam_lg, lam_ug] = deal(zeros(ng, N+1));
@@ -150,15 +165,19 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
     end
 
     sol.x = x; sol.u = u; sol.pi = pi_;
-    sol.lam_lb = reshape(qinfo.lam_lb, nu, N);
-    sol.lam_ub = reshape(qinfo.lam_ub, nu, N);
+    lam_lb = qinfo.lam_lb;  lam_ub = qinfo.lam_ub;
+    lam_lb(srow) = qinfo.lam_cl(ur);  lam_ub(srow) = qinfo.lam_cu(ur);
+    sol.lam_lb = reshape(lam_lb, nu, N);
+    sol.lam_ub = reshape(lam_ub, nu, N);
     sol.lam_lbx = lam_lbx;  sol.lam_ubx = lam_ubx;
+    sol.slack_lb = zeros(nu, N);  sol.slack_ub = zeros(nu, N);
     sol.slack_lbx = zeros(nx, N+1);  sol.slack_ubx = zeros(nx, N+1);
     if ng > 0, sol.lam_lg = lam_lg;  sol.lam_ug = lam_ug;  [sol.slack_lg, sol.slack_ug] = deal(zeros(ng, N+1)); end
     if isfield(qinfo, 'slack_cl')
         tmp = zeros(nx*N, 1); tmp(bnd) = qinfo.slack_cl(sr); sol.slack_lbx(:,2:end) = reshape(tmp, nx, N);
         tmp = zeros(nx*N, 1); tmp(bnd) = qinfo.slack_cu(sr); sol.slack_ubx(:,2:end) = reshape(tmp, nx, N);
         if ng > 0, sol.slack_lg(gbnd) = qinfo.slack_cl(gr);  sol.slack_ug(gbnd) = qinfo.slack_cu(gr); end
+        sol.slack_lb(srow) = qinfo.slack_cl(ur);  sol.slack_ub(srow) = qinfo.slack_cu(ur);
         qinfo = rmfield(qinfo, {'slack_cl', 'slack_cu'});
     end
     info = rmfield(qinfo, {'lam_lb', 'lam_ub', 'lam_cl', 'lam_cu'});

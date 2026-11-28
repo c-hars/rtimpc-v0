@@ -9,8 +9,6 @@ $$
 \begin{cases}
 x_0 = \hat{x} \\
 x_{i+1} = F(x_i, u_i, p_i) \\
-u_{\min} \le u_i \le u_{\max} \\
-\Delta_{\min} \le u_i - u_{i-1} \le \Delta_{\max} \\
 c_{\min} - s^- \le c(x_i, u_i) \le c_{\max} + s^+, & s^-, s^+ \ge 0
 \end{cases}
 $$
@@ -22,7 +20,7 @@ J = &\sum_{i=1}^{N-1} \lVert h(x_i, u_i) - r_i \rVert_{W_i}^2 + \lVert h_N(x_N) 
 \end{aligned}
 $$
 
-and applies $u_0$. Here $F$ is one sample of a discrete model, or of an integrator applied to $\dot{x} = f(x, u, p)$ with the input held (section 2); $p_i$ are known parameters over interval $i$.
+and applies $u_0$. Here $F$ is one sample of a discrete model, or of an integrator applied to $\dot{x} = f(x, u, p)$ with the input held (section 2); $p_i$ are known parameters over interval $i$. They can also enter the outputs, constraints and costs as one more argument: $h(x_i, u_i, p_i)$, $c(x_i, u_i, p_i)$, $\ell(x_i, u_i, p_i)$.
 
 > $u_{-1}$ is the input applied over the previous sample.
 
@@ -30,12 +28,12 @@ and applies $u_0$. Here $F$ is one sample of a discrete model, or of an integrat
 
 > Note: the quadratic terms carry no factor $\tfrac{1}{2}$, which matters when comparing against tools such as acados [4].
 
-**Constraints.** $c$ stands for each row below other than the input bounds and rate limits. Any bound may be infinite.
+**Constraints.** $c$ is any constraint in the table below. Bounds may be infinite, and may vary along the horizon.
 
 | Constraint | Form | Nodes | Default |
 |---|---|---|---|
-| Input bounds | $u_{\min} \le u_i \le u_{\max}$ | $0$ to $N-1$ | hard (always) |
-| Input-rate limits | $\Delta_{\min} \le u_i - u_{i-1} \le \Delta_{\max}$ | $0$ to $N-1$ | hard (always) |
+| Input bounds | $u_{\min} \le u_i \le u_{\max}$ | $0$ to $N-1$ | hard |
+| Input-rate limits | $\Delta_{\min} \le u_i - u_{i-1} \le \Delta_{\max}$ | $0$ to $N-1$ | hard |
 | State bounds | $x_{\min} \le x_i \le x_{\max}$ | $1$ to $N$ | soft |
 | Output bounds | $y_{\min} \le h(x_i, u_i) \le y_{\max}$ ($h_N$ at $N$) | $1$ to $N$ | soft |
 | Path constraints | $g_{\min} \le g(x_i, u_i) \le g_{\max}$ | $1$ to $N-1$ | soft |
@@ -45,7 +43,7 @@ and applies $u_0$. Here $F$ is one sample of a discrete model, or of an integrat
 - **Node 0** is the measurement: only initial constraints apply there, and an initial constraint without $u_0$ is left out.
 - **Node $N$** has no path constraints: use a terminal constraint or a state bound.
 
-**Slacks.** A hard constraint has $s^- = s^+ = 0$; a soft one keeps both at every node it applies at. Defaults: $\lambda_1 = 10^4$, $\lambda_2 = 0$; $\lambda_1 = \infty$ makes it hard.
+**Slacks.** Defaults: $\lambda_1 = 10^4$, $\lambda_2 = 0$, except for input bounds and rate limits, which are hard constraints with no slacks ($\lambda_1 = \infty$, so that $s^- = s^+ = 0$).
 
 > Note: a soft constraint yields the same solution as a hard constraint, whenever the hard problem has a solution, and provided $\lambda_1$ exceeds the hard problem's multiplier, i.e. identical solution quality in the typical case, without losing feasibility outside of that.
 
