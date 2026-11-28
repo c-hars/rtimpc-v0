@@ -1,22 +1,14 @@
 %% rtimpc example: cart-pole swing-up on a short track
 %
-% Classic NMPC benchmark: swing a pole from hanging (theta = pi) to upright (theta = 0) and
-% bring the cart back to x = 0, with a bounded force, a smoothness cost on force changes, and a
-% track only 0.2 m long (state constraint on the cart position). Nothing in the cost says how
-% to swing up: with the track this short, the controller finds energy pumping by itself,
-% rocking the cart within +-0.1 m until the pole has enough energy to be caught upright.
-% Shows the full rtimpc workflow: model + analytic Jacobians, Jacobian validation, cold-start
-% SQP, then real-time iterations.
+% Classic NMPC benchmark: swing a pole up from hanging (theta = pi) to upright (theta = 0) and bring the cart back to x = 0, with a bounded force, a smoothness cost on force changes, and a track only 0.2 m long (a state constraint on the cart position).
 %
-% Controller = 'nlmpc' runs MATLAB's nlmpc (Model Predictive Control Toolbox) on the same OCP for
-% comparison: the same RK4 discretisation, cost (custom cost function with its gradient) and
-% bounds, solved to convergence by fmincon at every step. One difference: nlmpc's track limit is
-% hard (rtimpc's is an exact L1 penalty, so equal while the bound holds).
-% nlmpcMaxIter caps nlmpc's SQP iterations from the second step on, as close to RTI as nlmpc
-% allows: the capped solution is applied (UseSuboptimalSolution), with ConstraintTolerance 1e3 so
-% that an iterate with open gaps is not rejected (nlmpc would otherwise hold the last input).
-% The loose tolerance also loosens the hard track limit; capped nlmpc fails the swing-up with
-% the track removed too, so the failure is the cap's.
+% Nothing in the cost says how to swing up. With a track this short, the controller finds energy pumping by itself, rocking the cart within +-0.1 m until the pole has enough energy to be caught upright.
+%
+% Shows the full rtimpc workflow: model and analytic Jacobians, Jacobian validation, a cold-start SQP, then real-time iterations.
+%
+% Comparison with nlmpc (Controller = 'nlmpc'; needs the Model Predictive Control Toolbox): nlmpc solves the same OCP (the same RK4 discretisation, cost and bounds) to convergence with fmincon at every step. The one difference is the track limit: hard in nlmpc, an exact L1 penalty in rtimpc.
+%
+% nlmpcMaxIter caps nlmpc's iterations per step after the first, to get as close to RTI as nlmpc allows. Two settings make the cap usable: UseSuboptimalSolution, so the capped iterate is applied (nlmpc would otherwise hold the last input), and ConstraintTolerance 1e3, so an iterate that does not yet satisfy the dynamics is not rejected. Capped this way, nlmpc fails the swing-up. The loose tolerance also loosens its hard track limit, but that is not the cause: capped nlmpc fails with the track removed too.
 
 clear
 here = fileparts(mfilename('fullpath'));
@@ -28,10 +20,8 @@ Fmax = 15;                                               % |force| <= 15 N
 Xmax = 0.1;                                              % |cart position| <= 0.1 m (track length 0.2 m)
 Animate = true;                                          % ASCII stop-motion replay in the terminal
 Controller = 'rtimpc';                                   % 'rtimpc' | 'nlmpc' (needs the MPC Toolbox)
-nlmpcMaxIter = Inf;                                      % nlmpc SQP iterations per step after the first
-                                                         % (Inf: to convergence; see the header)
-SQPIter = 1;                                             % rtimpc SQP iterations per step after the cold
-                                                         % start: 1 = RTI; 50 = to convergence, as nlmpc
+nlmpcMaxIter = Inf;                                      % nlmpc SQP iterations per step after the first (Inf: to convergence; see the header)
+SQPIter = 1;                                             % rtimpc SQP iterations per step after the cold start: 1 = RTI; 50 = to convergence, as nlmpc
 
 nmpc = rtimpc(4, 1, 2, Ts, N);                           % nx = 4 [x; xdot; th; thdot], nu = 1, ny = 2
 nmpc.Model.StateFcn     = @(x,u) cartpole(x, u, p);
@@ -46,8 +36,7 @@ nmpc.Constraints.InputMin = -Fmax;
 nmpc.Constraints.InputMax =  Fmax;
 nmpc.Constraints.StateMin = [-Xmax; -inf; -inf; -inf];   % only the cart position is bounded
 nmpc.Constraints.StateMax = [ Xmax;  inf;  inf;  inf];
-nmpc.Constraints.StatePenaltyL1 = 1e5;                   % soft track limit: cost per metre of violation
-                                                         % (Inf = hard)
+nmpc.Constraints.StatePenaltyL1 = 1e5;                   % soft track limit: cost per metre of violation (Inf = hard)
 nmpc.Optimisation.SQPMaxIter = SQPIter;                  % after the (full SQP) cold start
 nmpc.Optimisation.FirstStepSQPMaxIter = 100;             % the cold swing-up plan needs ~70 SQP its
 

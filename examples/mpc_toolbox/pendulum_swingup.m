@@ -1,22 +1,22 @@
 %% rtimpc example: pendulum swing-up and cart step (MPC Toolbox example)
 %
-% Rebuilt from MATLAB's "Swing-Up Control of Pendulum Using Nonlinear Model Predictive Control"
-% (nlmpc). The model is written here from the same equations; no MathWorks files are needed.
+% Rebuilt from MATLAB's "Swing-Up Control of Pendulum Using Nonlinear Model Predictive Control" (nlmpc): a pendulum on a cart is swung up and balanced, then the cart moves to a new position with the pendulum kept upright.
 %
-% Cart-pole: cart 1 kg with viscous damping 10, pendulum 1 kg, l = 0.5 m; state [z; dz; theta;
-% dtheta], theta = 0 upright. Discrete model: 10 forward-Euler steps per sample, Ts = 0.1 s, used
-% as the prediction model and as the plant. Swing up from hanging, hold the cart at z = 0, then
-% step the cart to z = 5 m at t = 10 s with the pendulum kept upright.
+% Problem
+%   State      x = [z; dz; theta; dtheta]: cart position and speed, pendulum angle (0 upright) and rate
+%   Input      u = F: force on the cart, |F| <= 100 N
+%   Model      cart 1 kg with viscous damping 10, pendulum 1 kg, l = 0.5 m; discrete, 10 forward-Euler steps per sample of Ts = 0.1 s; also the plant
+%   Horizon    10 steps (1 s), control horizon 5 (moves 5..10 held)
+%   Cost       9 |y - r|^2 on y = [z; theta] at every sample, 0.01 (u_i - u_{i-1})^2
+%   Bounds     |z| <= 10, soft (quadratic penalty per node)
+%   Task       20 s from hanging: swing up and hold z = 0, then step the cart to z = 5 m at t = 10 s
+%   Solver     SQP to convergence at every step
 %
-% Shows: a discrete-time model with complex-step Jacobians, a control horizon as a decimated
-% shooting grid (DecimationFactors), a soft output bound, a cost on input changes.
+% Shows: a discrete-time model with complex-step Jacobians, a control horizon as a decimated shooting grid (DecimationFactors), a soft output bound, and a cost on input changes.
 %
-% Differences from the original: exact state feedback (the original uses an EKF on noisy
-% measurements); the bound |z| <= 10 is soft with a quadratic penalty per node (nlmpc: one slack
-% over the horizon; inactive in this run).
+% Differences from the original: exact state feedback (the original uses an EKF on noisy measurements); the bound |z| <= 10 is soft with a quadratic penalty per node (nlmpc: one slack over the horizon; inactive in this run); the input change into the held block (moves 5..10) costs RateR in nlmpc, as any other move, and RateR / 6 in rtimpc, which treats it as a ramp over the block's 6 samples.
 %
-% Parity with nlmpc (same OCP, state feedback): both swing up (upright from t = 1.5 s vs 1.4 s) and
-% settle at z = 5 m after the step; the swing paths differ, closed-loop cost 2000 vs 1709.
+% Result: rtimpc and nlmpc both swing up (upright from t = 1.5 s vs 1.4 s) and settle at z = 5 m after the step. Their swing paths differ, with closed-loop cost 2000 vs 1709, from the different weight on that change. These figures stand in for the verification suite, which will hold the comparison and its setup once published.
 
 clear
 here = fileparts(mfilename('fullpath'));

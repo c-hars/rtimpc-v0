@@ -2,8 +2,7 @@ function ascii_cartpole(X, U, Ts, opts)
 % ASCII_CARTPOLE  Stop-motion replay of a cart-pole trajectory in the terminal.
 %
 %   ascii_cartpole(X, U, Ts)
-%     X  : states, one column per sample: [x; xdot; theta; thetadot], theta = 0 upright
-%          (cart position in row 1; the pole angle in row 3 unless Angles is given)
+%     X  : states, one column per sample: [x; xdot; theta; thetadot], theta = 0 upright (cart position in row 1; the pole angle in row 3 unless Angles is given)
 %     U  : 1 x K forces
 %     Ts : sample time [s]
 %
@@ -12,15 +11,11 @@ function ascii_cartpole(X, U, Ts, opts)
 %     PoleLength : drawn pole length [m] (default 0.5); a vector draws a chain of links
 %     Angles     : absolute link angles, one row per link (default: X(3,:)), theta = 0 upright
 %     Speed      : playback rate, 1 = real time (default 1)
-%     Frames     : frame indices to print one below another instead of animating
-%                  (for logs, or a stop-motion strip), e.g. 1:10:size(X,2)
+%     Frames     : frame indices to print one below another instead of animating (for logs, or a stop-motion strip), e.g. 1:10:size(X,2)
 %     Width      : drawing width in characters (default 60); the height follows from it
-%     Rows       : terminal height in lines, used to draw the frames at the bottom of the
-%                  window (default: from get(0, 'CommandWindowSize'); 0 = top-aligned)
+%     Rows       : terminal height in lines, used to draw the frames at the bottom of the window (default: from get(0, 'CommandWindowSize'); 0 = top-aligned)
 %
-%   Frames are redrawn with clc, which works in the MATLAB desktop, a terminal (-nodesktop)
-%   and the VS Code MATLAB extension (whose terminal swallows ANSI escape codes). Under
-%   -batch, clc does nothing and the frames are appended.
+%   Frames are redrawn with clc, which works in the MATLAB desktop, a terminal (-nodesktop) and the VS Code MATLAB extension (whose terminal swallows ANSI escape codes). Under -batch, clc does nothing and the frames are appended.
 
     arguments
         X double
@@ -42,8 +37,7 @@ function ascii_cartpole(X, U, Ts, opts)
     Fmax = max([abs(U), eps]);
     cart_half = 0.12;                                    % [m] drawn half-width of the cart
 
-    % Geometry: physical metres -> character cells. Terminal cells are about twice as tall as
-    % they are wide, so 1 m is twice as many columns as rows (keeps the pole's angle true).
+    % Geometry: physical metres -> character cells. Terminal cells are about twice as tall as they are wide, so 1 m is twice as many columns as rows (keeps the pole's angle true).
     reach = max(abs(X(1,:)));
     if isfinite(opts.TrackLimit), reach = max(reach, opts.TrackLimit); end
     span = reach + max(l, cart_half) + 0.1;              % half-width of the drawn window [m]
@@ -78,8 +72,7 @@ function ascii_cartpole(X, U, Ts, opts)
     for k = 1:K
         G = render(k);
         clc; fprintf('%s%s\n', pad, strjoin(cellstr(G), newline));
-        % Hold real-time pacing, and always yield: without a pause (or drawnow) the MATLAB
-        % desktop / IDE command windows do not repaint until the loop ends
+        % Hold real-time pacing, and always yield: without a pause (or drawnow) the MATLAB desktop / IDE command windows do not repaint until the loop ends
         lag = (k-1)*Ts/opts.Speed - toc(t0);
         pause(max(lag, 0.01));
     end

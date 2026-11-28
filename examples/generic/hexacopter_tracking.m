@@ -1,20 +1,18 @@
 %% rtimpc example: hexacopter tracking a 3D figure-8
 %
-% A hexacopter (13 states: position, body-frame velocity, attitude quaternion, body rates; 6 rotor
-% thrusts as inputs) flies a 3D figure-8 (8 m x 4 m x 8 m) in one 6 s lap, starting on the path
-% at its velocity. The plant is open-loop unstable; NMPC runs at 20 Hz with a 2 s horizon and
-% tracks position and yaw (via the quaternion's z part), and damps the roll and pitch rates.
-% Weights by Bryson's rule. The quaternion's unit norm is not constrained: the dynamics preserve
-% it (up to integration error, reported), and the plant renormalises after each step.
-% Shows: a larger model (nx = 13, nu = 6) with analytic Jacobians, a reference that varies along
-% the horizon, an input reference (hover thrust), real-time iterations.
+% A hexacopter flies one 6 s lap of a 3D figure-8 (8 m x 4 m x 8 m), starting on the path at its velocity.
 %
-% Controller = 'nlmpc' runs MATLAB's nlmpc (Model Predictive Control Toolbox) on the same OCP for
-% comparison: the same RK4 discretisation, cost (custom cost function with its gradient) and
-% bounds, solved to convergence by fmincon at every step. It takes seconds per step.
-% nlmpcMaxIter caps nlmpc's SQP iterations from the second step on, as close to RTI as nlmpc
-% allows: the capped solution is applied (UseSuboptimalSolution), with ConstraintTolerance 1e3 so
-% that an iterate with open gaps is not rejected (nlmpc would otherwise hold the last input).
+% Problem
+%   State      13: position, body-frame velocity, attitude quaternion, body rates
+%   Input      6 rotor thrusts
+%   NMPC       20 Hz, 2 s horizon; tracks position and yaw (via the quaternion's z part) and damps the roll and pitch rates; weights by Bryson's rule
+%   The plant is open-loop unstable. The quaternion's unit norm is not constrained: the dynamics preserve it (up to integration error, reported), and the plant renormalises after each step.
+%
+% Shows: a larger model (nx = 13, nu = 6) with analytic Jacobians, a reference that varies along the horizon, an input reference (hover thrust), and real-time iterations.
+%
+% Comparison with nlmpc (Controller = 'nlmpc'; needs the Model Predictive Control Toolbox):
+%   - Same OCP: the same RK4 discretisation, cost (a custom cost function with its gradient) and bounds, solved to convergence by fmincon at every step. It takes seconds per step.
+%   - nlmpcMaxIter caps nlmpc's SQP iterations from the second step on, as close to RTI as nlmpc allows. The capped solution is applied (UseSuboptimalSolution), with ConstraintTolerance 1e3 so that an iterate with open gaps is not rejected (nlmpc would otherwise hold the last input).
 
 clear
 here = fileparts(mfilename('fullpath'));
@@ -25,10 +23,8 @@ Ts = 1/20;  N = 40;                                      % 20 Hz, 2 s horizon
 Lap = 6;                                                 % figure-8 lap time [s]
 T = Lap;                                                 % simulated time [s]: one lap
 Controller = 'rtimpc';                                   % 'rtimpc' | 'nlmpc' (needs the MPC Toolbox)
-nlmpcMaxIter = Inf;                                      % nlmpc SQP iterations per step after the first
-                                                         % (Inf: to convergence; see the header)
-SQPIter = 1;                                             % rtimpc SQP iterations per step after the cold
-                                                         % start: 1 = RTI; 50 = to convergence, as nlmpc
+nlmpcMaxIter = Inf;                                      % nlmpc SQP iterations per step after the first (Inf: to convergence; see the header)
+SQPIter = 1;                                             % rtimpc SQP iterations per step after the cold start: 1 = RTI; 50 = to convergence, as nlmpc
 out = [1:3, 10:12];                                      % outputs: position, q_z (yaw), roll and pitch rates
 uh = P.m * P.g / 6 * ones(6, 1);                         % hover thrust per rotor
 
@@ -42,8 +38,7 @@ nmpc.Weights.Qy  = Ts * diag(1 ./ [0.1 0.1 0.1 sin(deg2rad(5)/2) deg2rad([50 50]
 nmpc.Weights.Qyf = diag([50.70 50.66 46.01 130.7 0.0767 0.0776]);   % from the DARE at hover (ZOH,
                                                          % diagonal kept)
 dw = P.wmax - P.wh;                                      % rotor-speed headroom above hover
-nmpc.Weights.R   = 10 * Ts / (2*P.kF*P.wh*dw)^2 * eye(6);  % 10 Ts / headroom^2 on rotor speed, as thrust
-                                                         % (thrust change = 2 kF w dw near hover)
+nmpc.Weights.R   = 10 * Ts / (2*P.kF*P.wh*dw)^2 * eye(6);  % 10 Ts / headroom^2 on rotor speed, as thrust (thrust change = 2 kF w dw near hover)
 nmpc.Constraints.InputMin = zeros(6, 1);
 nmpc.Constraints.InputMax = P.fmax * ones(6, 1);
 nmpc.Optimisation.SQPMaxIter = SQPIter;
@@ -130,8 +125,7 @@ legend(compose('rotor %d', 1:6))
 %% ---- Reference ----
 
 function r = figure8(t, Lap)
-% 3D figure-8, one lap per Lap seconds; references for the outputs (position, yaw, roll and
-% pitch rates), the last three zero
+% 3D figure-8, one lap per Lap seconds; references for the outputs (position, yaw, roll and pitch rates), the last three zero
     w = 2*pi/Lap;
     r = [4*sin(w*t); -2*sin(2*w*t); 4*cos(w*t); zeros(3, numel(t))];
 end
@@ -150,8 +144,7 @@ function P = hexa_params()
 end
 
 function dx = hexa(x, f, P)
-% x = [p; v; q; w]: world position, body-frame velocity, attitude quaternion [q0; qv] (body to
-% world), body rates
+% x = [p; v; q; w]: world position, body-frame velocity, attitude quaternion [q0; qv] (body to world), body rates
     v = x(4:6);  q = x(7:10);  w = x(11:13);  J = P.J;
     dx = [rotate(q, v, 1);
           -cross(w, v) + [0; 0; sum(f) / P.m] - P.g * rotate(q, [0; 0; 1], -1);
@@ -176,8 +169,7 @@ function [A, B] = hexa_jac(x, f, P)
 end
 
 function [y, dy] = rotate(q, a, s)
-% y = R(q) a (s = 1) or R(q)' a (s = -1), with R(q) = (q0^2 - |qv|^2) I + 2 qv qv' + 2 q0 [qv]x,
-% the rotation matrix for unit q; dy = dy/dq (3 x 4)
+% y = R(q) a (s = 1) or R(q)' a (s = -1), with R(q) = (q0^2 - |qv|^2) I + 2 qv qv' + 2 q0 [qv]x, the rotation matrix for unit q; dy = dy/dq (3 x 4)
     q0 = q(1);  qv = q(2:4);
     y = (q0^2 - qv'*qv) * a + 2 * qv * (qv'*a) + 2 * s * q0 * cross(qv, a);
     if nargout > 1

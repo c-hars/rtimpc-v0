@@ -1,11 +1,10 @@
 %% rtimpc example: double inverted pendulum swing-up
 %
-% A harder benchmark than the cart-pole: two links on a cart, swung from hanging (both angles pi)
-% to upright (both 0) with a bounded force on a 1 m track. The cost is a plain quadratic on the
-% cart position and both link angles; nothing in it says how to swing up. The dynamics are
-% strongly nonlinear and the swing-up takes most of the 2.5 s horizon, so one QP per step (RTI)
-% is not enough here: two SQP iterations per step are (see the note at the end of the report).
-% Model in mass-matrix form with analytic Jacobians.
+% A harder benchmark than the cart-pole: two links on a cart, swung from hanging (both angles pi) to upright (both 0), with a bounded force on a 1 m track.
+%
+% The cost is a plain quadratic on the cart position and both link angles; nothing in it says how to swing up. The dynamics are strongly nonlinear and the swing-up takes most of the 2.5 s horizon, so one QP per step (RTI) is not enough here: two SQP iterations per step are (see the note at the end of the report).
+%
+% Shows: a model in mass-matrix form with analytic Jacobians.
 
 clear
 here = fileparts(mfilename('fullpath'));
@@ -146,9 +145,7 @@ function p = dip_params()
 end
 
 function [dx, A, B] = dip(x, F, p)
-% x = [cart position; theta1; theta2; cart velocity; omega1; omega2], absolute link angles,
-% theta = 0 upright. Mass-matrix form M(q) qdd = f(q, qd, F), from the Lagrangian; the
-% Jacobians follow from differentiating it: d(qdd) = M \ (df - dM qdd).
+% x = [cart position; theta1; theta2; cart velocity; omega1; omega2], absolute link angles, theta = 0 upright. Mass-matrix form M(q) qdd = f(q, qd, F), from the Lagrangian; the Jacobians follow from differentiating it: d(qdd) = M \ (df - dM qdd).
     s1 = sin(x(2)); c1 = cos(x(2)); s2 = sin(x(3)); c2 = cos(x(3));
     s12 = sin(x(2) - x(3)); c12 = cos(x(2) - x(3));
     w1 = x(5); w2 = x(6);

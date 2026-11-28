@@ -1,25 +1,30 @@
 function R = rocket_landing()
 %% rtimpc example: plan and land a two-thruster vehicle (MPC Toolbox example)
 %
-% Rebuilt from MATLAB's "Landing a Vehicle Using Multistage Nonlinear MPC" (nlmpcMultistage): an
-% offline fuel-optimal landing plan, then closed-loop MPC tracking it. The model is written here
-% from the same equations; no MathWorks files are needed.
+% Rebuilt from MATLAB's "Landing a Vehicle Using Multistage Nonlinear MPC" (nlmpcMultistage): a planar two-thruster rocket lands at a target, along a fuel-optimal plan computed first and then flown by an MPC.
 %
-% A planar lander (disc, m = 1 kg, I = 50 kg m^2, two thrusters 5 m either side of the centre),
-% x = [x; y; theta; dx; dy; dtheta], u = [left; right] thrust in [0, 8] N, y >= 10 m (hard),
-% Ts = 0.2 s, from x0 = [-30 60 0 0 0 0]. Continuous model, implicit trapezoidal rule.
-%   Planner: p = 50 (10 s), fuel cost sum(u_k(1) + u_k(2)), hard terminal state [0 10 0 0 0 0];
-%     one cold solve from a guess of x0 everywhere and zero inputs.
-%   Lander: p = 10, cost sum |x_i - r_i|^2 + sum 0.1 (i+1) |u_i - u_{i-1}|^2, r = the plan previewed
-%     over the horizon (its end held), converged SQP each step; plant: ode45 over each sample;
-%     stops once within 1e-2 of the target.
+% Vehicle
+%   State      x = [x; y; theta; dx; dy; dtheta]: position, attitude and their rates
+%   Input      u = [left; right]: thrusts, each in [0, 8] N
+%   Model      planar disc, m = 1 kg, I = 50 kg m^2, thrusters 5 m either side of the centre; continuous, implicit trapezoidal rule, Ts = 0.2 s
+%   Bounds     y >= 10 m (hard)
+%   Start      x0 = [-30; 60; 0; 0; 0; 0]
 %
-% Shows: an offline trajectory optimisation and a tracking MPC with the same tool; a linear
-% (fuel) cost as Weights.InputLinear with the exact Hessian; a hard terminal-state constraint;
-% a per-stage rate weight (pages of Weights.RateR); a previewed reference; analytic Jacobians.
+% Planner (one OCP, cold-solved to convergence)
+%   Horizon    50 steps (10 s)
+%   Cost       fuel, sum of u_k(1) + u_k(2)
+%   Terminal   x_N = [0; 10; 0; 0; 0; 0] (hard)
+%   Guess      x0 at every node, zero inputs
 %
-% Parity with nlmpcMultistage (same OCPs): the same plan (fuel 492.968948; states within 3e-5) and
-% the same landing (84 steps, fuel 827.646; states within 2e-5).
+% Lander (closed loop, tracking the plan)
+%   Horizon    10 steps
+%   Cost       sum |x_i - r_i|^2 + sum 0.1 (i+1) |u_i - u_{i-1}|^2, r the plan previewed over the horizon (held at its end)
+%   Solver     SQP to convergence at every step
+%   Plant      ode45 over each sample; the run stops once within 1e-2 of the target
+%
+% Shows: an offline trajectory optimisation and a tracking MPC with the same tool; a linear (fuel) cost as Weights.InputLinear with the exact Hessian; a hard terminal-state constraint; a per-stage rate weight (pages of Weights.RateR); a previewed reference; analytic Jacobians.
+%
+% Result: matches nlmpcMultistage on the same setup: plan (fuel 492.968948, states within 3e-5) and landing (fuel 827.646, states within 2e-5). These figures stand in for the verification suite, which will hold the comparison and its setup once published.
 
     here = fileparts(mfilename('fullpath'));
     root = fullfile(here, '..', '..');  addpath(root, fullfile(root, 'qp'));
@@ -75,7 +80,7 @@ function S = plan_summary(name, X, U, exitflag, iters, t, target, Ts)
 end
 
 function S = closed_loop(move, Xplan, x0, u0, target, Ts, p, MaxSteps, name)
-% The example's loop: preview the plan (held at its end), one move per sample, ode45 plant
+% The original example's loop: preview the plan (held at its end), one move per sample, ode45 plant
     np = size(Xplan, 2);
     X = x0;  U = zeros(2, 0);  [t, flag, it] = deal([]);  lastMV = u0;  landed = false;
     for k = 1:MaxSteps
