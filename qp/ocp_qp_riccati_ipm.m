@@ -13,9 +13,14 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
 %     lb, ub (nu,N)                                            input bounds
 %     lbx, ubx (nx,N+1)                                        state bounds (optional)
 %     Cg (ng,nx,N+1), Dg (ng,nu,N), lg, ug (ng,N+1)            general constraints (optional)
-%   Bounds may be -Inf or Inf. The first stage's state terms are unused, since x_1 = x0 is fixed.
-%
-%   State bounds and general constraints can be soft, as HPIPM's: zlx, zux, Zlx, Zux (state bounds) and zlg, zug, Zlg, Zug (general constraints) are the L1 (z) and L2 (Z) weights of the lower (l) and upper (u) slacks; the defaults, Inf and 0, keep them hard.
+%     zlu, zuu, Zlu, Zuu (nu,N)                                soft input bounds (optional)
+%     zlx, zux, Zlx, Zux (nx,N+1)                              soft state bounds (optional)
+%     zlg, zug, Zlg, Zug (ng,N+1)                              soft general constraints (optional)
+%   Constraints can be soft or hard, and limits can be +-Inf. If a single column is provided, it is held over the horizon. Their slack penalties are named as follows:
+%     z, Z        L1, L2 weight
+%     l, u        lower, upper
+%     u, x, g     input, state, general constraints
+%   Constraints are hard by default (z=inf, Z=0).
 %
 %   Eq1 (ne,nu) and eq1 (ne,1) add equality constraints on the first input, Eq1*u_1 = eq1, enforced exactly.
 %
@@ -53,6 +58,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         opts.InertiaDeltaHint (1,1) double = 0        % the previous QP's final delta (0: none)
     end
 
+    ocp = ocp_qp_broadcast_bounds(ocp);   % single-column bounds held over the horizon
     [nx, nu, N] = size(ocp.B);
     c = ocp.c; q = ocp.q; r = ocp.r;
     % Stage matrices as cells: slicing a 3-D array, A(:,:,i), copies; cell access does not
@@ -83,6 +89,12 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
     if isfield(ocp, 'Zlx'), Zl = ocp.Zlx .* ones(nx, N+1); Zu = ocp.Zux .* ones(nx, N+1); end
     hsl = hxl & isfinite(zl);  hsu = hxu & isfinite(zu);
     zl(~hsl) = 0;  zu(~hsu) = 0;  Zl(~hsl) = 0;  Zu(~hsu) = 0;
+    % Soft input bounds: the same, on the input box
+    [zlu, zuu, Zlu, Zuu] = deal(inf(nu, N), inf(nu, N), zeros(nu, N), zeros(nu, N));
+    if isfield(ocp, 'zlu'), zlu = ocp.zlu .* ones(nu, N); zuu = ocp.zuu .* ones(nu, N); end
+    if isfield(ocp, 'Zlu'), Zlu = ocp.Zlu .* ones(nu, N); Zuu = ocp.Zuu .* ones(nu, N); end
+    hsul = hl & isfinite(zlu);  hsuu = hu & isfinite(zuu);
+    zlu(~hsul) = 0;  zuu(~hsuu) = 0;  Zlu(~hsul) = 0;  Zuu(~hsuu) = 0;
     % General rows lg <= Cg x + Dg u <= ug (none: ng = 0, and the terms below vanish)
     hasg = isfield(ocp, 'Cg') && ~isempty(ocp.Cg) && size(ocp.Cg, 1) > 0;
     if hasg
@@ -105,7 +117,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
     nu_e = zeros(size(E1, 1), 1);  res_e = zeros(size(E1, 1), 1);
     zlg(~hsgl) = 0;  zug(~hsgu) = 0;  Zlg(~hsgl) = 0;  Zug(~hsgu) = 0;
     m = nnz(hl) + nnz(hu) + nnz(hxl) + nnz(hxu) + nnz(hsl) + nnz(hsu) ...
-        + nnz(hgl) + nnz(hgu) + nnz(hsgl) + nnz(hsgu);
+        + nnz(hgl) + nnz(hgu) + nnz(hsgl) + nnz(hsgu) + nnz(hsul) + nnz(hsuu);
 
     % --- Initial point: u inside the box, x = 0 after the fixed x_1 (HPIPM's cold start; the Newton steps close the dynamics), t, lam > 0. (Not the rollout of the dynamics from x_1: on unstable models it grows without bound, and the IPM stalls.)
     if isfield(ocp, 'u_init'), u = ocp.u_init; else, u = zeros(nu, N); end
@@ -134,6 +146,14 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
     sxu = ones(nx, N+1);  sxu(hsu) = opts.Mu0 ./ nxu(hsu);
     [rsl, rsu, rcsl, rcsu, gsl, gsu] = deal(zeros(nx, N+1));
     [El, Eu] = deal(ones(nx, N+1));
+    % ... the soft input bounds
+    nul = max(zlu + Zlu - lam_l, opts.Mu0) .* hsul;
+    nuu = max(zuu + Zuu - lam_u, opts.Mu0) .* hsuu;
+    sul = ones(nu, N);  sul(hsul) = opts.Mu0 ./ nul(hsul);
+    suu = ones(nu, N);  suu(hsuu) = opts.Mu0 ./ nuu(hsuu);
+    [rsul, rsuu, rcsul, rcsuu, gsul, gsuu] = deal(zeros(nu, N));
+    [Elu, Euu] = deal(ones(nu, N));
+    [dsul, dsuu, dnul, dnuu] = deal(zeros(nu, N));
     % ... and the same for the general rows
     ngl = max(zlg + Zlg - lam_gl, opts.Mu0) .* hsgl;
     ngu = max(zug + Zug - lam_gu, opts.Mu0) .* hsgu;
@@ -169,7 +189,8 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
 
         % --- Residuals / termination
         compute_residuals();
-        rl  = (u - lb - tl) .* hl;     ru  = (ub - u - tu) .* hu;
+        rl  = (u - lb + sul.*hsul - tl) .* hl;     ru  = (ub - u + suu.*hsuu - tu) .* hu;
+        rsul = (zlu + Zlu.*sul - lam_l - nul) .* hsul;  rsuu = (zuu + Zuu.*suu - lam_u - nuu) .* hsuu;
         rxl = (x - lbx + sxl.*hsl - txl) .* hxl;  rxu = (ubx - x + sxu.*hsu - txu) .* hxu;
         rsl = (zl + Zl.*sxl - lam_xl - nxl) .* hsl;  rsu = (zu + Zu.*sxu - lam_xu - nxu) .* hsu;
         if hasg
@@ -178,13 +199,13 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
             rsgl = (zlg + Zlg.*sgl - lam_gl - ngl) .* hsgl;  rsgu = (zug + Zug.*sgu - lam_gu - ngu) .* hsgu;
         end
         mu = complementarity(tl, tu, lam_l, lam_u, txl, txu, lam_xl, lam_xu, sxl, sxu, nxl, nxu, ...
-                             tgl, tgu, lam_gl, lam_gu, sgl, sgu, ngl, ngu);
+                             tgl, tgu, lam_gl, lam_gu, sgl, sgu, ngl, ngu, sul, suu, nul, nuu);
         res_stat = max([max(abs(res_u), [], 'all'), max(abs(res_x), [], 'all'), max(abs([rsl; rsu]), [], 'all'), ...
-                        max(abs([rsgl; rsgu]), [], 'all')]);
+                        max(abs([rsgl; rsgu]), [], 'all'), max(abs([rsul; rsuu]), [], 'all')]);
         res_eq   = max([max(abs(res_d), [], 'all'), max(abs([rl; ru]), [], 'all'), max(abs([rxl; rxu]), [], 'all'), ...
                         max(abs([rgl; rgu]), [], 'all'), max(abs(res_e))]);
         res_comp = max_complementarity(tl, tu, lam_l, lam_u, txl, txu, lam_xl, lam_xu, sxl, sxu, nxl, nxu, ...
-                                       tgl, tgu, lam_gl, lam_gu, sgl, sgu, ngl, ngu);
+                                       tgl, tgu, lam_gl, lam_gu, sgl, sgu, ngl, ngu, sul, suu, nul, nuu);
         if res_stat <= opts.TolStat && res_eq <= opts.TolEq && res_comp <= opts.TolComp
             info.status = 'solved';
             iter = iter - 1;
@@ -197,7 +218,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
             if score < best_score
                 best_score = score;
                 best = {x, u, pi_, nu_e, tl, tu, lam_l, lam_u, txl, txu, lam_xl, lam_xu, sxl, sxu, nxl, nxu, ...
-                        tgl, tgu, lam_gl, lam_gu, sgl, sgu, ngl, ngu, res_stat, res_eq, res_comp, iter - 1, mu};
+                        tgl, tgu, lam_gl, lam_gu, sgl, sgu, ngl, ngu, sul, suu, nul, nuu, res_stat, res_eq, res_comp, iter - 1, mu};
             end
         else
             n_acc = 0;
@@ -212,6 +233,11 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         % --- Riccati factorisation of the barrier-modified KKT system
         Dl = lam_l ./ tl;    Du = lam_u ./ tu;
         Dxl = lam_xl ./ txl; Dxu = lam_xu ./ txu;
+        % Soft input bounds: the same elimination as the soft state bounds below
+        Elu(hsul) = Zlu(hsul) + Dl(hsul) + nul(hsul) ./ sul(hsul);
+        Euu(hsuu) = Zuu(hsuu) + Du(hsuu) + nuu(hsuu) ./ suu(hsuu);
+        Dl_eff = Dl;  Dl_eff(hsul) = Dl(hsul) .* (Zlu(hsul) + nul(hsul) ./ sul(hsul)) ./ Elu(hsul);
+        Du_eff = Du;  Du_eff(hsuu) = Du(hsuu) .* (Zuu(hsuu) + nuu(hsuu) ./ suu(hsuu)) ./ Euu(hsuu);
         % Soft bounds: eliminate the slack; its pivot E = Z + D + n/s is in series with D
         El(hsl) = Zl(hsl) + Dxl(hsl) + nxl(hsl) ./ sxl(hsl);
         Eu(hsu) = Zu(hsu) + Dxu(hsu) + nxu(hsu) ./ sxu(hsu);
@@ -232,7 +258,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
             Pn = P{i+1};
             BP = B{i}' * Pn;
             % Inverse factor once per node: the gain and both back-substitutions then multiply instead of solving (cheaper at these sizes, where per-operation overhead dominates)
-            Ri = R{i} + diag(Dl(:,i) + Du(:,i)) + BP * B{i};
+            Ri = R{i} + diag(Dl_eff(:,i) + Du_eff(:,i)) + BP * B{i};
             Si = S{i};  Qi = Q{i};
             if hasg
                 DC = Dg_eff(:,i) .* Cg{i};
@@ -261,8 +287,9 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         rcsl = -sxl .* nxl .* hsl;  rcsu = -sxu .* nxu .* hsu;
         rcgl = -tgl .* lam_gl;  rcgu = -tgu .* lam_gu;
         rcsgl = -sgl .* ngl .* hsgl;  rcsgu = -sgu .* ngu .* hsgu;
+        rcsul = -sul .* nul .* hsul;  rcsuu = -suu .* nuu .* hsuu;
         [dx, du, dpi, dnue] = newton_step();
-        [dtl, dtu, dll, dlu] = ipm_bound_steps(du, rl, ru, rcl, rcu, tl, tu, lam_l, lam_u, hl, hu);
+        [dtl, dtu, dll, dlu, dsul, dsuu, dnul, dnuu] = input_bound_steps(du);
         [dtxl, dtxu, dlxl, dlxu, dsl, dsu, dnl, dnu] = state_bound_steps(dx);
         [dtgl, dtgu, dlgl, dlgu, dsgl, dsgu, dngl, dngu] = general_row_steps(dx, du);
         alpha = max_step(1);
@@ -271,7 +298,8 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
                 txl + alpha*dtxl, txu + alpha*dtxu, lam_xl + alpha*dlxl, lam_xu + alpha*dlxu, ...
                 sxl + alpha*dsl, sxu + alpha*dsu, nxl + alpha*dnl, nxu + alpha*dnu, ...
                 tgl + alpha*dtgl, tgu + alpha*dtgu, lam_gl + alpha*dlgl, lam_gu + alpha*dlgu, ...
-                sgl + alpha*dsgl, sgu + alpha*dsgu, ngl + alpha*dngl, ngu + alpha*dngu);
+                sgl + alpha*dsgl, sgu + alpha*dsgu, ngl + alpha*dngl, ngu + alpha*dngu, ...
+                sul + alpha*dsul, suu + alpha*dsuu, nul + alpha*dnul, nuu + alpha*dnuu);
             sigma = (mu_aff / mu)^3;
         else
             sigma = 0;
@@ -288,13 +316,15 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         rcgu = (sigma*mu - tgu .* lam_gu - dtgu .* dlgu) .* hgu;
         rcsgl = (sigma*mu - sgl .* ngl - dsgl .* dngl) .* hsgl;
         rcsgu = (sigma*mu - sgu .* ngu - dsgu .* dngu) .* hsgu;
+        rcsul = (sigma*mu - sul .* nul - dsul .* dnul) .* hsul;
+        rcsuu = (sigma*mu - suu .* nuu - dsuu .* dnuu) .* hsuu;
         [dx, du, dpi, dnue] = newton_step();
-        [dtl, dtu, dll, dlu] = ipm_bound_steps(du, rl, ru, rcl, rcu, tl, tu, lam_l, lam_u, hl, hu);
+        [dtl, dtu, dll, dlu, dsul, dsuu, dnul, dnuu] = input_bound_steps(du);
         [dtxl, dtxu, dlxl, dlxu, dsl, dsu, dnl, dnu] = state_bound_steps(dx);
         [dtgl, dtgu, dlgl, dlgu, dsgl, dsgu, dngl, dngu] = general_row_steps(dx, du);
         alpha = max_step(opts.StepFrac);
         if ~all(isfinite([alpha; dx(:); du(:); dpi(:); dnue; dlxl(:); dlxu(:); dsl(:); dsu(:); dnl(:); dnu(:); ...
-                          dlgl(:); dlgu(:); dsgl(:); dsgu(:); dngl(:); dngu(:)]))
+                          dlgl(:); dlgu(:); dsgl(:); dsgu(:); dngl(:); dngu(:); dsul(:); dsuu(:); dnul(:); dnuu(:)]))
             error('rtimpc:chol', 'Non-finite IPM step.')
         end
         catch err
@@ -323,6 +353,8 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         lam_xl = lam_xl + alpha * dlxl;  lam_xu = lam_xu + alpha * dlxu;
         sxl    = sxl    + alpha * dsl;   sxu    = sxu    + alpha * dsu;
         nxl    = nxl    + alpha * dnl;   nxu    = nxu    + alpha * dnu;
+        sul    = sul    + alpha * dsul;  suu    = suu    + alpha * dsuu;
+        nul    = nul    + alpha * dnul;  nuu    = nuu    + alpha * dnuu;
         if hasg
             tgl    = tgl    + alpha * dtgl;  tgu    = tgu    + alpha * dtgu;
             lam_gl = lam_gl + alpha * dlgl;  lam_gu = lam_gu + alpha * dlgu;
@@ -334,11 +366,12 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
     if ~strcmp(info.status, 'solved') && ~isempty(best)
         % An acceptable iterate (every residual within TolAcceptable of its tolerance) was passed, and the IPM then stalled or ran to MaxIter (near the solution the iterates can deteriorate as the barrier terms become extreme): return that iterate as IPOPT's acceptable point
         [x, u, pi_, nu_e, tl, tu, lam_l, lam_u, txl, txu, lam_xl, lam_xu, sxl, sxu, nxl, nxu, ...
-         tgl, tgu, lam_gl, lam_gu, sgl, sgu, ngl, ngu, res_stat, res_eq, res_comp, info.iter_selected, mu] = best{:};
+         tgl, tgu, lam_gl, lam_gu, sgl, sgu, ngl, ngu, sul, suu, nul, nuu, res_stat, res_eq, res_comp, info.iter_selected, mu] = best{:};
         info.status = 'solved';  info.acceptable = true;   % iter stays the work done (all iterations); iter_selected: the iterate returned
     end
     sol.x = x; sol.u = u; sol.pi = pi_;
     sol.lam_lb = lam_l;   sol.lam_ub = lam_u;
+    sol.slack_lb = sul .* hsul;  sol.slack_ub = suu .* hsuu;
     sol.lam_lbx = lam_xl; sol.lam_ubx = lam_xu;
     sol.slack_lbx = sxl .* hsl;  sol.slack_ubx = sxu .* hsu;
     if hasg
@@ -430,7 +463,9 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         % LQ problem in the step:  min 1/2 [dx;du]'[Q~ S';S R~][dx;du] + gx'dx + gu'du
         %                          s.t. dx_{i+1} = A dx_i + B du_i + res_d_i,  dx_1 = 0
         % gu, gx fold the bound residuals and complementarity RHS into the gradients.
-        gu = res_u - rcl./tl + Dl.*rl + rcu./tu - Du.*ru;
+        gsul = (-rsul + rcl./tl - Dl.*rl + rcsul./sul) ./ Elu .* hsul;
+        gsuu = (-rsuu + rcu./tu - Du.*ru + rcsuu./suu) ./ Euu .* hsuu;
+        gu = res_u - rcl./tl + Dl.*(rl + gsul) + rcu./tu - Du.*(ru + gsuu);
         % Soft bounds: the slack step is ds = g_s -/+ (D/E) dx; its constant part enters gx
         gsl = (-rsl + rcxl./txl - Dxl.*rxl + rcsl./sxl) ./ El .* hsl;
         gsu = (-rsu + rcxu./txu - Dxu.*rxu + rcsu./sxu) ./ Eu .* hsu;
@@ -484,7 +519,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         % Residual of the LQ problem's optimality conditions at (dx, du, dpi): stationarity wrt du and dx (barrier-modified Hessians), and the dynamics. All stages at once, as compute_residuals.
         eu = reshape(pagemtimes(R3, pg(du)) + pagemtimes(S3, pg(dx(:,1:N))) ...
                      + pagemtimes(B3, 'transpose', pg(dpi(:,2:N+1)), 'none'), nu, N) ...
-             + (Dl + Du) .* du + gu;
+             + (Dl_eff + Du_eff) .* du + gu;
         ed = reshape(pagemtimes(A3, pg(dx(:,1:N))) + pagemtimes(B3, pg(du)), nx, N) + rd - dx(:,2:N+1);
         ex = zeros(nx, N+1);
         if N > 1
@@ -505,28 +540,42 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
     function alpha = max_step(frac)
         % Largest alpha in (0,1] keeping all slacks and multipliers positive (times frac)
         v = [tl(:); tu(:); lam_l(:); lam_u(:); txl(:); txu(:); lam_xl(:); lam_xu(:); sxl(:); sxu(:); nxl(:); nxu(:); ...
-             tgl(:); tgu(:); lam_gl(:); lam_gu(:); sgl(:); sgu(:); ngl(:); ngu(:)];
+             tgl(:); tgu(:); lam_gl(:); lam_gu(:); sgl(:); sgu(:); ngl(:); ngu(:); sul(:); suu(:); nul(:); nuu(:)];
         d = [dtl(:); dtu(:); dll(:); dlu(:); dtxl(:); dtxu(:); dlxl(:); dlxu(:); dsl(:); dsu(:); dnl(:); dnu(:); ...
-             dtgl(:); dtgu(:); dlgl(:); dlgu(:); dsgl(:); dsgu(:); dngl(:); dngu(:)];
+             dtgl(:); dtgu(:); dlgl(:); dlgu(:); dsgl(:); dsgu(:); dngl(:); dngu(:); dsul(:); dsuu(:); dnul(:); dnuu(:)];
         neg = d < 0;
         if any(neg), alpha = min(1, frac * min(-v(neg) ./ d(neg))); else, alpha = 1; end
     end
 
-    function mu = complementarity(tl, tu, ll, lu, txl, txu, lxl, lxu, sl, su, nl, nu, tgl, tgu, lgl, lgu, sgl, sgu, ngl, ngu)
+    function mu = complementarity(tl, tu, ll, lu, txl, txu, lxl, lxu, sl, su, nl, nu, tgl, tgu, lgl, lgu, sgl, sgu, ngl, ngu, sul, suu, nul, nuu)
         if m == 0, mu = 0; return, end
         mu = (sum(tl .* ll .* hl, 'all') + sum(tu .* lu .* hu, 'all') + ...
               sum(txl .* lxl .* hxl, 'all') + sum(txu .* lxu .* hxu, 'all') + ...
               sum(sl .* nl .* hsl, 'all') + sum(su .* nu .* hsu, 'all') + ...
               sum(tgl .* lgl .* hgl, 'all') + sum(tgu .* lgu .* hgu, 'all') + ...
-              sum(sgl .* ngl .* hsgl, 'all') + sum(sgu .* ngu .* hsgu, 'all')) / m;
+              sum(sgl .* ngl .* hsgl, 'all') + sum(sgu .* ngu .* hsgu, 'all') + ...
+              sum(sul .* nul .* hsul, 'all') + sum(suu .* nuu .* hsuu, 'all')) / m;
     end
 
-    function c = max_complementarity(tl, tu, ll, lu, txl, txu, lxl, lxu, sl, su, nl, nu, tgl, tgu, lgl, lgu, sgl, sgu, ngl, ngu)
+    function c = max_complementarity(tl, tu, ll, lu, txl, txu, lxl, lxu, sl, su, nl, nu, tgl, tgu, lgl, lgu, sgl, sgu, ngl, ngu, sul, suu, nul, nuu)
         c = max([0, max(tl .* ll .* hl, [], 'all'), max(tu .* lu .* hu, [], 'all'), ...
                     max(txl .* lxl .* hxl, [], 'all'), max(txu .* lxu .* hxu, [], 'all'), ...
                     max(sl .* nl .* hsl, [], 'all'), max(su .* nu .* hsu, [], 'all'), ...
                     max(tgl .* lgl .* hgl, [], 'all'), max(tgu .* lgu .* hgu, [], 'all'), ...
-                    max(sgl .* ngl .* hsgl, [], 'all'), max(sgu .* ngu .* hsgu, [], 'all')]);
+                    max(sgl .* ngl .* hsgl, [], 'all'), max(sgu .* ngu .* hsgu, [], 'all'), ...
+                    max(sul .* nul .* hsul, [], 'all'), max(suu .* nuu .* hsuu, [], 'all')]);
+    end
+
+    function [dtl, dtu, dll, dlu, dsul, dsuu, dnul, dnuu] = input_bound_steps(du)
+        % Input-bound slack/multiplier steps (and soft-bound slack steps) given the primal step du
+        dsul = (gsul - (Dl ./ Elu) .* du) .* hsul;
+        dsuu = (gsuu + (Du ./ Euu) .* du) .* hsuu;
+        dtl  = ( du + dsul + rl) .* hl;
+        dtu  = (-du + dsuu + ru) .* hu;
+        dll  = (rcl - lam_l .* dtl) ./ tl;
+        dlu  = (rcu - lam_u .* dtu) ./ tu;
+        dnul = (rcsul - nul .* dsul) ./ sul .* hsul;
+        dnuu = (rcsuu - nuu .* dsuu) ./ suu .* hsuu;
     end
 
     function [dtxl, dtxu, dlxl, dlxu, dsl, dsu, dnl, dnu] = state_bound_steps(dx)

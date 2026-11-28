@@ -18,6 +18,7 @@ function res = ocp_nlp_res_compute(qp, dual, uscale, xscaled)
 %
 %   See also OCP_QP_RICCATI_IPM.
 
+    qp = ocp_qp_broadcast_bounds(qp);   % single-column bounds held over the horizon
     [nx, nu, N] = size(qp.B);
     if nargin < 3 || isempty(uscale), uscale = ones(nu, 1); end
     if nargin < 4, xscaled = []; end
@@ -47,9 +48,10 @@ function res = ocp_nlp_res_compute(qp, dual, uscale, xscaled)
     xv = zeros(nx, N+1);  xv(:,1) = x0;
     res_s = zeros(0, 1);  viol = zeros(0, 1);  comp = zeros(0, 1);
 
-    % input bounds (always hard)
-    [v, c] = bound_terms(zeros(nu, N), qp.lb, qp.ub, lam_lb, lam_ub, Inf, Inf, 0, 0, uscale);
-    viol = [viol; v];  comp = [comp; c];
+    % input bounds (soft where zlu, zuu are finite)
+    [zl, zu, Zl, Zu] = soft_weights(qp, 'zlu', 'zuu', 'Zlu', 'Zuu', nu, N);
+    [v, c, s] = bound_terms(zeros(nu, N), qp.lb, qp.ub, lam_lb, lam_ub, zl, zu, Zl, Zu, uscale);
+    viol = [viol; v];  comp = [comp; c];  res_s = [res_s; s];
     % state bounds, nodes 2..N+1 (column 1 ignored, as the solver)
     if isfield(qp, 'lbx') && ~isempty(qp.lbx)
         sc = ones(nx, 1);  if ~isempty(xscaled), sc(xscaled) = uscale; end
