@@ -1,13 +1,17 @@
 function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
-% OCP_QP_CONDENSED_IPM  OCP-QP solver by full condensing + dense interior point.
+%OCP_QP_CONDENSED_IPM Solve an OCP-structured QP by condensing and a dense interior-point method.
+%   sol = OCP_QP_CONDENSED_IPM(ocp) solves the same QP as OCP_QP_RICCATI_IPM, from the same ocp fields.
 %
-% Same problem and interface as ocp_qp_riccati_ipm, soft state bounds and general rows included. The states are eliminated using the dynamics, x = Theta*u + w, leaving a dense QP in the N*nu inputs:
+%   [sol, info] = OCP_QP_CONDENSED_IPM(ocp, 'Name', Value) sets options (the arguments block below) and returns sol and info as OCP_QP_RICCATI_IPM does.
 %
-%   min 1/2 z'H z + g'z  s.t. lb <= z <= ub,  lbx - w <= Theta z <= ubx - w (bounded rows only),
-%        and each general row lg <= Cg x + Dg u <= ug with x = Theta z + w
-%   H = Theta'Qb Theta + Rb + Sb Theta + Theta'Sb',   g = Theta'(Qb w + qb) + r + Sb w
+%   The method is full condensing followed by DENSE_QP_IPM: the dynamics eliminate the states, x = Theta*u + w, leaving a dense QP in the N*nu inputs (the classic ACADO/qpOASES pipeline).
 %
-% (the classic ACADO/qpOASES pipeline). Condensing costs O(N^2), each IPM iteration a dense O((N nu)^3) Cholesky -- more flops than the O(N) Riccati recursion, but executed as a few large BLAS calls rather than many small matrix operations.
+%   A few notes:
+%     - Condensing costs O(N^2) and each IPM iteration a dense O((N*nu)^3) factorisation: more flops than the O(N) Riccati recursion, but in a few large BLAS calls instead of many small ones.
+%     - Equalities need no Eq1 here: general constraints with lg == ug become dense rows, which DENSE_QP_IPM enforces as equalities.
+%     - An indefinite QP Hessian is not convexified (no inertia correction), and the dual warm start lam_init is ignored (DENSE_QP_IPM takes only a primal initial guess, ocp.u_init).
+%
+%   See also OCP_QP_RICCATI_IPM, DENSE_QP_IPM.
 
     arguments
         ocp struct
@@ -17,10 +21,10 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
         opts.TolComp   (1,1) double = 1e-8
         opts.StepFrac  (1,1) double = 0.995
         opts.Mu0       (1,1) double = 1
-        opts.Factor    (1,:) char = 'auto'               % 'normal' | 'auto' | 'lq' (see dense_qp_ipm)
+        opts.Factor    (1,:) char = 'auto'   % 'normal' | 'auto' | 'lq' (see dense_qp_ipm)
         opts.Refine    (1,1) double = 2      % iterative refinement steps on the corrector (see dense_qp_ipm)
-        opts.Proximal = false                            % PIQP's proximal IPM (see dense_qp_ipm)
-        opts.Scale    (1,1) double = 0                   % Ruiz passes (see dense_qp_ipm)
+        opts.Proximal = false                % PIQP's proximal IPM (see dense_qp_ipm)
+        opts.Scale    (1,1) double = 0       % Ruiz passes (see dense_qp_ipm)
     end
 
     A = ocp.A; B = ocp.B; c = ocp.c;
