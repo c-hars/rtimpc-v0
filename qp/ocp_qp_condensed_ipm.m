@@ -8,7 +8,7 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
 %
 %   A few notes:
 %     - Condensing costs O(N^2) and each IPM iteration a dense O((N*nu)^3) factorisation: more flops than the O(N) Riccati recursion, but in a few large BLAS calls instead of many small ones.
-%     - Equalities need no Eq1 here: general constraints with lg == ug become dense rows, which DENSE_QP_IPM enforces as equalities.
+%     - Equalities need no Eq1 here: general constraints with lg == ug become rows of the dense QP's G with cl == cu, which DENSE_QP_IPM detects and enforces as equalities.
 %     - An indefinite QP Hessian is not convexified (no inertia correction), and the dual warm start lam_init is ignored (DENSE_QP_IPM takes only a primal initial guess, ocp.u_init).
 %
 %   See also OCP_QP_RICCATI_IPM, DENSE_QP_IPM.
@@ -77,7 +77,7 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
     end
     H = 0.5*(H + H');
 
-    % --- State bounds become general linear constraints on z (bounded rows of Theta only); soft ones become soft rows, their slacks eliminated inside dense_qp_ipm
+    % --- State bounds become general linear constraints on z (bounded rows of Theta only); soft ones become soft constraints, their slacks eliminated inside dense_qp_ipm
     if isfield(ocp, 'lbx')
         lbx = ocp.lbx(:,2:end);  ubx = ocp.ubx(:,2:end);
         bnd = isfinite(lbx(:)) | isfinite(ubx(:));
@@ -92,7 +92,7 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
     W1 = inf(nnz(bnd), 2);  W2 = zeros(nnz(bnd), 2);
     if isfield(ocp, 'zlx'), W1 = [row(ex(ocp.zlx)), row(ex(ocp.zux))];  W1 = W1(bnd, :); end
     if isfield(ocp, 'Zlx'), W2 = [row(ex(ocp.Zlx)), row(ex(ocp.Zux))];  W2 = W2(bnd, :); end
-    % General rows, node by node (column i: x_i = x0 for i = 1, else rows of Theta z + w; u_i for i <= N)
+    % General constraints, node by node (column i: x_i = x0 for i = 1, else rows of Theta z + w; u_i for i <= N)
     ng = 0;
     if isfield(ocp, 'Cg') && ~isempty(ocp.Cg), ng = size(ocp.Cg, 1); end
     gbnd = false(ng, N+1);
@@ -117,7 +117,7 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
             W1 = [W1; z1];  W2 = [W2; z2]; %#ok<AGROW>
         end
     end
-    % Soft input bounds (zlu, zuu, Zlu, Zuu): those entries leave the box and become soft rows on z
+    % Soft input bounds (zlu, zuu, Zlu, Zuu): those entries leave the box and become soft constraints on z
     lb = ocp.lb(:);  ub = ocp.ub(:);  srow = false(nz, 1);
     if isfield(ocp, 'zlu')
         zlu = reshape(ocp.zlu .* ones(nu, N), [], 1);  zuu = reshape(ocp.zuu .* ones(nu, N), [], 1);
@@ -139,7 +139,7 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
     % --- Dense QP
     z_init = [];
     if isfield(ocp, 'u_init'), z_init = ocp.u_init(:); end
-    % Stationarity in the OCP's units: the condensed gradient residual is Theta'*r_x + r_u, with r_x, r_u the per-stage residuals the Riccati IPM tests. For unstable dynamics over long horizons Theta grows exponentially, and an absolute 1e-8 on the condensed residual lies below round-off (cart-pole, 4 s: H spans 1e3..1e10, and solved QPs ran to MaxIter).
+    % Stationarity in the OCP's units: the condensed gradient residual is Theta'*r_x + r_u, with r_x, r_u the per-stage residuals the Riccati IPM tests. For unstable dynamics over long horizons Theta grows exponentially, and an absolute tolerance on the condensed residual can lie below round-off.
     o = opts;  o.TolStat = opts.TolStat * max(1, norm(Th, 1));
     args = namedargs2cell(o);
     [z, qinfo] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, args{:}, soft_args{:}, 'z_init', z_init);
@@ -149,7 +149,7 @@ function [sol, info] = ocp_qp_condensed_ipm(ocp, opts)
     x = [ocp.x0, reshape(Th*z + w, nx, N)];
     lam_lbx = zeros(nx, N+1);  lam_ubx = zeros(nx, N+1);
     ns = nnz(bnd);  sr = 1:ns;  nur = nnz(srow);
-    gr = ns+1 : numel(cl) - nur;  ur = numel(cl) - nur + 1 : numel(cl);   % state-bound rows, general rows, soft input rows
+    gr = ns+1 : numel(cl) - nur;  ur = numel(cl) - nur + 1 : numel(cl);   % state-bound constraints, general constraints, soft input bounds
     tmp = zeros(nx*N, 1); tmp(bnd) = qinfo.lam_cl(sr); lam_lbx(:,2:end) = reshape(tmp, nx, N);
     tmp = zeros(nx*N, 1); tmp(bnd) = qinfo.lam_cu(sr); lam_ubx(:,2:end) = reshape(tmp, nx, N);
     [lam_lg, lam_ug] = deal(zeros(ng, N+1));

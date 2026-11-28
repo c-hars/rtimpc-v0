@@ -95,7 +95,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
     if isfield(ocp, 'Zlu'), Zlu = ocp.Zlu .* ones(nu, N); Zuu = ocp.Zuu .* ones(nu, N); end
     hsul = hl & isfinite(zlu);  hsuu = hu & isfinite(zuu);
     zlu(~hsul) = 0;  zuu(~hsuu) = 0;  Zlu(~hsul) = 0;  Zuu(~hsuu) = 0;
-    % General rows lg <= Cg x + Dg u <= ug (none: ng = 0, and the terms below vanish)
+    % General constraints lg <= Cg x + Dg u <= ug (none: ng = 0, and the terms below vanish)
     hasg = isfield(ocp, 'Cg') && ~isempty(ocp.Cg) && size(ocp.Cg, 1) > 0;
     if hasg
         ng = size(ocp.Cg, 1);
@@ -111,7 +111,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         [hgl, hgu] = deal(false(0, N+1));
     end
     hsgl = hgl & isfinite(zlg);  hsgu = hgu & isfinite(zug);
-    % Equality rows on the first input (none: ne = 0)
+    % Equality constraints on the first input (none: ne = 0)
     haseq = isfield(ocp, 'Eq1') && ~isempty(ocp.Eq1);
     if haseq, E1 = ocp.Eq1;  e1 = ocp.eq1(:); else, E1 = zeros(0, nu);  e1 = zeros(0, 1); end
     nu_e = zeros(size(E1, 1), 1);  res_e = zeros(size(E1, 1), 1);
@@ -154,7 +154,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
     [rsul, rsuu, rcsul, rcsuu, gsul, gsuu] = deal(zeros(nu, N));
     [Elu, Euu] = deal(ones(nu, N));
     [dsul, dsuu, dnul, dnuu] = deal(zeros(nu, N));
-    % ... and the same for the general rows
+    % ... and the same for the general constraints
     ngl = max(zlg + Zlg - lam_gl, opts.Mu0) .* hsgl;
     ngu = max(zug + Zug - lam_gu, opts.Mu0) .* hsgu;
     sgl = ones(ng, N+1);  sgl(hsgl) = opts.Mu0 ./ ngl(hsgl);
@@ -243,7 +243,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         Eu(hsu) = Zu(hsu) + Dxu(hsu) + nxu(hsu) ./ sxu(hsu);
         Dxl_eff = Dxl;  Dxl_eff(hsl) = Dxl(hsl) .* (Zl(hsl) + nxl(hsl) ./ sxl(hsl)) ./ El(hsl);
         Dxu_eff = Dxu;  Dxu_eff(hsu) = Dxu(hsu) .* (Zu(hsu) + nxu(hsu) ./ sxu(hsu)) ./ Eu(hsu);
-        if hasg   % general rows: the same elimination on v = Cg x + Dg u
+        if hasg   % general constraints: the same elimination on v = Cg x + Dg u
             Dgl = lam_gl ./ tgl;  Dgu = lam_gu ./ tgu;
             Egl(hsgl) = Zlg(hsgl) + Dgl(hsgl) + ngl(hsgl) ./ sgl(hsgl);
             Egu(hsgu) = Zug(hsgu) + Dgu(hsgu) + ngu(hsgu) ./ sgu(hsgu);
@@ -332,7 +332,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
                 continue   % the iteration again, on the convexified QP (residuals recomputed)
             end
             if ~any(strcmp(err.identifier, {'rtimpc:chol', 'rtimpc:inertia'})), rethrow(err), end
-            % IPOPT's acceptable point: when the step computation fails at an iterate that meets every tolerance within TolAcceptable, return it as solved (near the solution the barrier terms are extreme and the factorisation can break down although the iterate is converged to round-off; e.g. stationarity 1.02e-8 with mu ~1e-15)
+            % IPOPT's acceptable point: when the step computation fails at an iterate that meets every tolerance within TolAcceptable, return it as solved (near the solution the barrier terms are extreme and the factorisation can break down although the iterate is converged to round-off)
             if ipm_acceptable(res_stat, res_eq, res_comp, opts)
                 info.status = 'solved';  info.acceptable = true;
             else
@@ -441,19 +441,19 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
                            + q(:,2:N) - pi_(:,2:N) - lam_xl(:,2:N) + lam_xu(:,2:N);
         end
         res_x(:,N+1) = Q3N * x(:,N+1) + q(:,N+1) - pi_(:,N+1) - lam_xl(:,N+1) + lam_xu(:,N+1);
-        if hasg   % general rows: + Cg'(lam_ug - lam_lg), Dg'(lam_ug - lam_lg)
+        if hasg   % general constraints: + Cg'(lam_ug - lam_lg), Dg'(lam_ug - lam_lg)
             dl = lam_gu - lam_gl;
             res_u = res_u + reshape(pagemtimes(Dg3, 'transpose', pg(dl(:,1:N)), 'none'), nu, N);
             res_x(:,2:N+1) = res_x(:,2:N+1) + reshape(pagemtimes(Cg3(:,:,2:N+1), 'transpose', pg(dl(:,2:N+1)), 'none'), nx, N);
         end
-        if haseq   % equality rows on u_1: + Eq1'nu_e, and their residual
+        if haseq   % equality constraints on u_1: + Eq1'nu_e, and their residual
             res_u(:,1) = res_u(:,1) + E1' * nu_e;
             res_e = E1 * u(:,1) - e1;
         end
     end
 
     function v = gfun(x, u)
-        % General rows' values Cg x + Dg u at every node (node N+1: Cg x)
+        % General constraints' values Cg x + Dg u at every node (node N+1: Cg x)
         if ~hasg, v = zeros(0, N+1); return, end
         v = reshape(pagemtimes(Cg3, pg(x)), ng, N+1);
         v(:,1:N) = v(:,1:N) + reshape(pagemtimes(Dg3, pg(u)), ng, N);
@@ -470,7 +470,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
         gsl = (-rsl + rcxl./txl - Dxl.*rxl + rcsl./sxl) ./ El .* hsl;
         gsu = (-rsu + rcxu./txu - Dxu.*rxu + rcsu./sxu) ./ Eu .* hsu;
         gx = res_x - rcxl./txl + Dxl.*(rxl + gsl) + rcxu./txu - Dxu.*(rxu + gsu);
-        if hasg   % general rows: their eliminated terms hg enter through Cg' and Dg'
+        if hasg   % general constraints: their eliminated terms hg enter through Cg' and Dg'
             gsgl = (-rsgl + rcgl./tgl - Dgl.*rgl + rcsgl./sgl) ./ Egl .* hsgl;
             gsgu = (-rsgu + rcgu./tgu - Dgu.*rgu + rcsgu./sgu) ./ Egu .* hsgu;
             hg = (-rcgl./tgl + Dgl.*(rgl + gsgl)) .* hgl + (rcgu./tgu - Dgu.*(rgu + gsgu)) .* hgu;
@@ -488,7 +488,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
     end
 
     function [dx, du, dpi, dnue] = lq_solve(gu, gx, rd, re)
-        % The LQ problem by the factorised Riccati recursion: backward pass, forward rollout. With equality rows on u_1 (E1 du_1 + re = 0), the first stage's step is the constrained one.
+        % The LQ problem by the factorised Riccati recursion: backward pass, forward rollout. With equality constraints on u_1 (E1 du_1 + re = 0), the first stage's step is the constrained one.
         kff = zeros(nu, N);
         p   = zeros(nx, N+1);
         p(:,N+1) = gx(:,N+1);
@@ -591,7 +591,7 @@ function [sol, info] = ocp_qp_riccati_ipm(ocp, opts)
     end
 
     function [dtgl, dtgu, dlgl, dlgu, dsgl, dsgu, dngl, dngu] = general_row_steps(dx, du)
-        % As state_bound_steps, for the general rows with v = Cg dx + Dg du
+        % As state_bound_steps, for the general constraints with v = Cg dx + Dg du
         if ~hasg, [dtgl, dtgu, dlgl, dlgu, dsgl, dsgu, dngl, dngu] = deal(zeros(0, N+1)); return, end
         v = gfun(dx, du);
         dsgl = (gsgl - (Dgl ./ Egl) .* v) .* hsgl;
@@ -607,7 +607,7 @@ end
 
 
 function [tl, tu, ll, lu] = init_slacks(v, lb, ub, hl, hu, mu0, warm)
-% Slacks at the current primal point, floored (infeasible starts are allowed). Cold start: floor 1 and lam = mu0, a start well inside whatever the primal point, as in dense_qp_ipm (a floor of 1e-2 with lam = mu0/t put pairs at t = 1e-2, lam = 100: on the mass-spring benchmark 14-16 iterations instead of 10-11, and far from the solution after 10). Warm start: floor 1e-2 and lam = mu0/t, the reference for the WarmFloor of the multipliers passed in, so that a bound active in the guess keeps its small slack.
+% Slacks at the current primal point, floored (infeasible starts are allowed). Cold start: floor 1 and lam = mu0, a start well inside whatever the primal point, as in dense_qp_ipm (a smaller floor slows the first iterations). Warm start: floor 1e-2 and lam = mu0/t, the reference for the WarmFloor of the multipliers passed in, so that a bound active in the guess keeps its small slack.
     floor = 1;  if warm, floor = 1e-2; end
     tl = ones(size(v));  tl(hl) = max(v(hl) - lb(hl), floor);
     tu = ones(size(v));  tu(hu) = max(ub(hu) - v(hu), floor);
@@ -627,7 +627,7 @@ function C = pages(M)
 end
 
 function L = chol_reg(M, tries)
-% Cholesky factor of a (nominally) positive definite matrix. If rounding has made it numerically indefinite (extreme barrier terms near convergence), add the smallest diagonal regularisation that restores definiteness; the residual-based Newton steps absorb the perturbation. Shifts 1e-12, 1e-10, ... x max(1, max|diag|), up to tries of them (3: round-off only, to 1e-8; 10: to 1e6). Returns [] if none succeeds.
+% Cholesky factor of a (nominally) positive definite matrix. If rounding has made it numerically indefinite (extreme barrier terms near convergence), add the smallest diagonal regularisation that restores definiteness; the residual-based Newton steps absorb the perturbation. The shifts grow geometrically from 1e-12 x max(1, max|diag|), up to tries of them. Returns [] if none succeeds.
     [L, p] = chol(M);
     if p == 0, return, end
     d = 1e-12 * max(1, max(abs(diag(M))));

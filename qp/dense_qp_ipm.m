@@ -7,11 +7,11 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
 %
 %   with H positive (semi)definite. Bounds may be -Inf or Inf.
 %
-%   z = DENSE_QP_IPM(H, g, lb, ub, G, cl, cu) also satisfies the linear constraints cl <= G*z <= cu. For an equality row, set cl(i) = cu(i).
+%   z = DENSE_QP_IPM(H, g, lb, ub, G, cl, cu) also satisfies the linear constraints cl <= G*z <= cu. For an equality constraint, set cl(i) = cu(i).
 %
-%   z = DENSE_QP_IPM(..., 'Name', Value) sets options; the arguments block below lists them with their defaults. PenaltyL1 and PenaltyL2 make inequality rows soft.
+%   z = DENSE_QP_IPM(..., 'Name', Value) sets options; the arguments block below lists them with their defaults. PenaltyL1 and PenaltyL2 make inequality constraints soft.
 %
-%   [z, info] = DENSE_QP_IPM(...) also returns a structure info with the iterations taken in info.iter, the final residuals in info.res_stat, info.res_eq and info.res_comp, the multipliers of the bounds and rows in info.lam_lb, info.lam_ub, info.lam_cl and info.lam_cu, and the soft rows' slacks in info.slack_cl and info.slack_cu. info.status is one of
+%   [z, info] = DENSE_QP_IPM(...) also returns a structure info with the iterations taken in info.iter, the final residuals in info.res_stat, info.res_eq and info.res_comp, the multipliers of the bounds and constraints in info.lam_lb, info.lam_ub, info.lam_cl and info.lam_cu, and the soft rows' slacks in info.slack_cl and info.slack_cu. info.status is one of
 %     'solved'     tolerances met, or an acceptable point reached (info.acceptable; see TolAcceptable)
 %     'max_iter'   maximum number of iterations exceeded
 %     'stalled'    numerical breakdown; the last good iterate is returned
@@ -20,7 +20,7 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
 %
 %   A few notes:
 %     - The IPM stops once the stationarity, equality and complementarity residuals are within TolStat, TolEq and TolComp respectively. All three are absolute tolerances, same as HPIPM.
-%     - Constraint rows with cl(i) == cu(i) are detected and enforced as equalities in the KKT system, i.e. a free multiplier with no interior, and there is no tolerance applied on the equality detection; anything not detected stays a tight inequality pair. Bounds differing by round-off will enter the KKT system normally and leave the IPM with an ill-conditioned interior.
+%     - Constraints with cl(i) == cu(i) are detected and enforced as equalities in the KKT system, i.e. a free multiplier with no interior, and there is no tolerance applied on the equality detection; anything not detected stays a tight inequality pair. Bounds differing by round-off will enter the KKT system normally and leave the IPM with an ill-conditioned interior.
 %     - The KKT system is factorised by Cholesky, switching to an LQ factorisation once Cholesky proves inaccurate (Factor 'auto', the default). The LQ factorisation stays accurate on worse-conditioned systems, typical near convergence, at about 3-4x the per-iteration cost.
 %
 %   See also OCP_QP_RICCATI_IPM, OCP_QP_CONDENSED_IPM.
@@ -93,9 +93,9 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
 
     n = numel(g);
     cl = cl(:);  cu = cu(:);
-    eq = isfinite(cl) & cl == cu;                        % equality rows: Ge z = ce
+    eq = isfinite(cl) & cl == cu;                        % equality constraints: Ge z = ce
     rows = numel(cl);  Ge = G(eq, :);  ce = cl(eq);  neq = nnz(eq);
-    % Soft rows: L1/L2 weights per inequality row (zero outside the soft masks hsl, hsu)
+    % Soft constraints: L1/L2 weights per inequality constraint (zero outside the soft masks hsl, hsu)
     [zgl, zgu] = deal(inf(rows, 1));  [Zgl, Zgu] = deal(zeros(rows, 1));
     if soft
         W1 = opts.PenaltyL1 .* ones(rows, 2);  zgl = W1(:,1);  zgu = W1(:,2);
@@ -124,7 +124,7 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
     Gz = G*z;
     [tl, tu, ll, lu]     = init_slacks(z,  lb, ub, hl, hu, opts.Mu0);
     [tgl, tgu, lgl, lgu] = init_slacks(Gz, cl, cu, hgl, hgu, opts.Mu0);
-    % Soft-row slacks s and their multipliers n, started as in ocp_qp_riccati_ipm: the weight on n, s = Mu0/n (the row starts out nearly hard)
+    % Soft-constraint slacks s and their multipliers n, started as in ocp_qp_riccati_ipm: the weight on n, s = Mu0/n (the constraint starts out nearly hard)
     ngl = max(zgl + Zgl - lgl, opts.Mu0) .* hsl;  ngu = max(zgu + Zgu - lgu, opts.Mu0) .* hsu;
     sgl = ones(size(cl));  sgl(hsl) = opts.Mu0 ./ ngl(hsl);
     sgu = ones(size(cl));  sgu(hsu) = opts.Mu0 ./ ngu(hsu);
@@ -179,7 +179,7 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
 
         Db = ll ./ tl + lu ./ tu;
         Dgl = lgl ./ tgl;  Dgu = lgu ./ tgu;
-        % Soft rows: eliminate the slack; its pivot E = Z + D + n/s is in series with D
+        % Soft constraints: eliminate the slack; its pivot E = Z + D + n/s is in series with D
         Egl(hsl) = Zgl(hsl) + Dgl(hsl) + ngl(hsl) ./ sgl(hsl);
         Egu(hsu) = Zgu(hsu) + Dgu(hsu) + ngu(hsu) ./ sgu(hsu);
         Dg = Dgl + Dgu;
@@ -284,7 +284,7 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
         end
         [dtl, dtu, dll, dlu]     = ipm_bound_steps(dz,   rl,  ru,  rcl,  rcu,  tl,  tu,  ll,  lu,  hl,  hu);
         Gdz = G*dz;
-        % Soft rows: the slack step ds = g_s -/+ (D/E) G dz (ocp_qp_riccati_ipm's state_bound_steps)
+        % Soft constraints: the slack step ds = g_s -/+ (D/E) G dz (ocp_qp_riccati_ipm's state_bound_steps)
         dsl = (gsl - (Dgl ./ Egl) .* Gdz) .* hsl;
         dsu = (gsu + (Dgu ./ Egu) .* Gdz) .* hsu;
         [dtgl, dtgu, dlgl, dlgu] = ipm_bound_steps(Gdz, rgl + dsl, rgu + dsu, rcgl, rcgu, tgl, tgu, lgl, lgu, hgl, hgu);
@@ -305,7 +305,7 @@ function [z, info] = dense_qp_ipm(H, g, lb, ub, G, cl, cu, opts)
     end
 
     function r0 = rhs()
-        % Right-hand side of the reduced KKT system: bound and row residuals folded into rd. Soft rows: the slack step's constant part g_s enters the row's residual.
+        % Right-hand side of the reduced KKT system: bound and constraint residuals folded into rd. Soft constraints: the slack step's constant part g_s enters the constraint's residual.
         gb = -rcl./tl + (ll./tl).*rl + rcu./tu - (lu./tu).*ru;
         gsl = (-rsl + rcgl./tgl - Dgl.*rgl + rcsl./sgl) ./ Egl .* hsl;
         gsu = (-rsu + rcgu./tgu - Dgu.*rgu + rcsu./sgu) ./ Egu .* hsu;
@@ -386,7 +386,7 @@ end
 
 
 function [tl, tu, ll, lu] = init_slacks(v, lb, ub, hl, hu, mu0)
-% Slacks at least 1 and multipliers mu0: a start well inside, whatever the initial z. (A slack floor of 1e-2 with lam = mu0/t put a pair at t = 1e-2, lam = 100 and held the first steps to ~1e-6 on badly scaled problems; on the Maros-Meszaros set this start solves 3 more.)
+% Slacks at least 1 and multipliers mu0: a start well inside, whatever the initial z; a smaller slack floor holds the first steps back on badly scaled problems.
     tl = ones(size(v));  tl(hl) = max(v(hl) - lb(hl), 1);
     tu = ones(size(v));  tu(hu) = max(ub(hu) - v(hu), 1);
     ll = mu0 * hl;
