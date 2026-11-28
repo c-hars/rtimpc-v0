@@ -4,16 +4,16 @@ function res = ocp_nlp_res_compute(qp, dual, uscale, xscaled)
 %
 %   res is a structure with
 %     stat   inf-norm of the Lagrangian gradient (states of nodes 2..N+1, inputs, soft slacks)
-%     eq     inf-norm of the dynamics gaps (and of the equality rows Eq1)
+%     eq     inf-norm of the dynamics gaps (and of the equality constraints Eq1)
 %     ineq   largest violation of a hard bound or constraint (soft ones are absorbed by their slacks)
 %     comp   inf-norm of multiplier x margin
 %
 %   dual holds pi (nx,N+1), lam_lb, lam_ub (nu,N) and, as present, lam_lbx, lam_ubx (nx,N+1), lam_lg, lam_ug (ng,N+1) and nu_eq1 (ne,1); missing fields are zero.
 %
-%   res = OCP_NLP_RES_COMPUTE(qp, dual, uscale, xscaled) gives the residuals in physical units when the QP's inputs are scaled, u = uscale .* u_qp, and so are the states with row indices xscaled.
+%   res = OCP_NLP_RES_COMPUTE(qp, dual, uscale, xscaled) gives the residuals in physical units when the QP's inputs are scaled, u = uscale .* u_qp, and so are the states listed in xscaled (indices into x).
 %
 %   A few notes:
-%     - x_1 is fixed and eliminated. acados keeps it, with an equality bound whose multiplier absorbs its stationarity row; the conditions are the same.
+%     - x_1 is fixed and eliminated. acados keeps it, with an equality bound whose multiplier absorbs its stationarity condition; the conditions are the same.
 %     - The cost is the QP's: rtimpc's J/2, as acados's.
 %
 %   See also OCP_QP_RICCATI_IPM.
@@ -44,7 +44,7 @@ function res = ocp_nlp_res_compute(qp, dual, uscale, xscaled)
         res_e = qp.eq1;   % Eq1 * 0 - eq1, sign irrelevant for the norm
     end
 
-    % row values at the zero step: inputs 0, states 0 except x_1 = x0
+    % constraint values at the zero step: inputs 0, states 0 except x_1 = x0
     xv = zeros(nx, N+1);  xv(:,1) = x0;
     res_s = zeros(0, 1);  viol = zeros(0, 1);  comp = zeros(0, 1);
 
@@ -60,7 +60,7 @@ function res = ocp_nlp_res_compute(qp, dual, uscale, xscaled)
         [v, c, s] = bound_terms(xv(:,k), qp.lbx(:,k), qp.ubx(:,k), lam_lbx(:,k), lam_ubx(:,k), zl(:,k), zu(:,k), Zl(:,k), Zu(:,k), sc);
         viol = [viol; v];  comp = [comp; c];  res_s = [res_s; s];
     end
-    % general rows, nodes 1..N+1 (node N+1: Cg x only)
+    % general constraints, nodes 1..N+1 (node N+1: Cg x only)
     if ng > 0
         lam_lg = get('lam_lg', [ng, N+1]);  lam_ug = get('lam_ug', [ng, N+1]);
         dl = lam_ug - lam_lg;
@@ -98,7 +98,7 @@ function [viol, comp, rs] = bound_terms(v, lo, hi, lam_lo, lam_hi, zlo, zhi, Zlo
 % Violation (hard sides), complementarity and slack stationarity of lo <= v <= hi with multipliers lam_lo, lam_hi.
 %   Soft side (finite L1 weight): relaxed by its slack s = max(0, violation), the smallest feasible (with a quadratic weight Z > 0, at least (lam - z)/Z, see below), with the slack's own conditions z + Z s - lam - n = 0, n >= 0, n s = 0. With n = max(0, z + Z s - lam), the closest admissible, the stationarity residual is max(0, lam - z - Z s) and n s joins the complementarity. This is continuous in s: a round-off slack does not switch to |z + Z s - lam|.
 %   Hard equalities (lo = hi, both sides hard) carry no complementarity (acados zeroes them: the two multipliers act as one free one). A soft side keeps its product: it is an inequality with its own slack, lo - s <= v (or v <= hi + s), whether or not lo = hi.
-%   scale: per row, physical = scale x QP units.
+%   scale: per constraint, physical = scale x QP units.
     m = size(v, 2);  scale = scale .* ones(1, m);
     flo = isfinite(lo);  fhi = isfinite(hi);
     dlo = zeros(size(v));  dhi = dlo;
@@ -106,7 +106,7 @@ function [viol, comp, rs] = bound_terms(v, lo, hi, lam_lo, lam_hi, zlo, zhi, Zlo
     dhi(fhi) = v(fhi) - hi(fhi);
     softlo = flo & isfinite(zlo);  softhi = fhi & isfinite(zhi);
     slo = max(dlo, 0) .* softlo;  shi = max(dhi, 0) .* softhi;
-    % Quadratic soft sides (Z > 0): the slack the multiplier implies, (lam - z)/Z, where it exceeds the smallest feasible one. The slack is a variable of the QP (acados keeps it in its iterate). This one zeroes its own stationarity, and the row's margin it leaves, s - violation, is in the row's complementarity, lam (s - violation), as acados's. (Using the violation itself would turn an IPM margin t ~ comp/lam into a stationarity residual Z t.)
+    % Quadratic soft sides (Z > 0): the slack the multiplier implies, (lam - z)/Z, where it exceeds the smallest feasible one. The slack is a variable of the QP (acados keeps it in its iterate). This one zeroes its own stationarity, and the margin it leaves, s - violation, goes into the constraint's complementarity, lam (s - violation), as acados's. (Using the violation itself would turn an IPM margin into a stationarity residual.)
     qlo = softlo & Zlo > 0;  qhi = softhi & Zhi > 0;
     slo(qlo) = max(slo(qlo), (lam_lo(qlo) - zlo(qlo)) ./ Zlo(qlo));
     shi(qhi) = max(shi(qhi), (lam_hi(qhi) - zhi(qhi)) ./ Zhi(qhi));
