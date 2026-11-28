@@ -12,7 +12,7 @@ classdef rtimpc < handle
 %        OutputMin <= h(x_i, u_i) <= OutputMax  (i = 1..N; node N uses u_{N-1}),
 %        PathConstraintMin <= g(x_i, u_i) <= PathConstraintMax  (i = 1..N-1; node 0: InitialConstraintFcn, as acados),
 %        TerminalConstraintMin <= g_N(x_N) <= TerminalConstraintMax,
-%        InitialConstraintMin <= g_0(x_0, u_0) <= InitialConstraintMax  (node 0: x_0 = x is fixed, so these constrain u_0, e.g. input-only rows; acados's con_h_expr_0)
+%        InitialConstraintMin <= g_0(x_0, u_0) <= InitialConstraintMax  (node 0: x_0 = x is fixed, so these constrain u_0, e.g. constraints on the inputs only; acados's con_h_expr_0)
 %   soft in the same way (OutputPenaltyL1/L2, PathConstraintPenaltyL1/L2, TerminalConstraintPenaltyL1/L2, InitialConstraintPenaltyL1/L2); and input-rate terms
 %   sum_i (u_i - u_{i-1})'RateR(u_i - u_{i-1}),  RateMin <= u_i - u_{i-1} <= RateMax  (u_{-1}: last input)
 %
@@ -52,11 +52,11 @@ classdef rtimpc < handle
             'PathConstraintFcn', [], ...  % @(x,u) g: PathConstraintMin <= g(x_i, u_i) <= PathConstraintMax; applies at nodes 1..N-1 (node 0: InitialConstraintFcn, node N: TerminalConstraintFcn)
             'TerminalConstraintFcn', [], ... % @(x) gN: TerminalConstraintMin <= gN(x_N) <= TerminalConstraintMax
             'InitialConstraintFcn', [], ...  % @(x,u) g0: InitialConstraintMin <= g0(x_0, u_0) <= InitialConstraintMax, node 0
-            'ConstraintHessianFcn', [], ...  % @(x,u) H (nx+nu x nx+nu x ng): row curvature added under Gauss-Newton x the row's upper multiplier (see ggn_curvature)
+            'ConstraintHessianFcn', [], ...  % @(x,u) H (nx+nu x nx+nu x ng): constraint curvature added under Gauss-Newton x the constraint's upper multiplier (see ggn_curvature)
             'TerminalConstraintHessianFcn', [], ... % @(x) H (nx x nx x ngt), as ConstraintHessianFcn
             'InitialConstraintHessianFcn', [], ...  % @(x,u) H (nx+nu x nx+nu x ng0), as ConstraintHessianFcn
             'IntervalHessianFcn', [], ...    % Hessian 'exact': optional @(X,U,d,Pi) H (nx+nu x nx+nu x M): Hessian of Pi(:,i)'F(x_i, u_i) in (x_i, u_i), all intervals at once (@(X,U,d,Pi,P) with Parameters); replaces lagrangian_curvature's finite differences of the dynamics
-            'ConstraintLagrangianHessianFcn', [], ... % Hessian 'exact': optional @(X,U,L) H (nx+nu x nx+nu x K): Hessian of L(:,k)'g(x_k, u_k) (PathConstraintFcn rows), K inner nodes at once; replaces their finite differences
+            'ConstraintLagrangianHessianFcn', [], ... % Hessian 'exact': optional @(X,U,L) H (nx+nu x nx+nu x K): Hessian of L(:,k)'g(x_k, u_k) (the path constraints), K inner nodes at once; replaces their finite differences
             'IsContinuousTime', true, ...
             'StateFcnReturnsJacobian', false)  % true: [f, A, B] = StateFcn(x,u) (one call, no separate Jacobian.StateFcn -- avoids recomputing f)
 
@@ -125,7 +125,7 @@ classdef rtimpc < handle
             'SQPTolStat',          1e-6, ...  % 'kkt': inf-norm of the Lagrangian gradient (cost J/2, as acados; inputs in their own units)
             'SQPTolStatScaling',   'none', ... % 'kkt': 'none' (absolute, as acados) | 'ipopt': stationarity and complementarity divided by IPOPT's s_d, s_c (ipopt_stat_scale)
             'SQPTolEq',            1e-6, ...  % 'kkt': largest shooting gap
-            'SQPTolIneq',          1e-6, ...  % 'kkt': largest violation of a hard bound or row
+            'SQPTolIneq',          1e-6, ...  % 'kkt': largest violation of a hard bound or constraint
             'SQPTolComp',          1e-6, ...  % 'kkt': largest multiplier x margin (acados's defaults, all four)
             'SQPTol',              1e-6, ...  % 'step': inf-norm of the (scaled) SQP step ('kkt': a step below 1e-12 also stops, acados's tol_min_step_norm)
             'SQPTolCost',          1e-9, ...  % 'step': or predicted merit decrease <= SQPTolCost * |J| at a gap-free plan
@@ -143,7 +143,7 @@ classdef rtimpc < handle
             'SecondOrderCorrection', false, ... % on a rejected full step, re-solve the QP for the gaps it opens
             'QPWarmStart',         true, ...  % start the QP multipliers from the previous step's, shifted (riccati, undecimated); a warm-started QP that fails is retried cold
             'WarmStart',           'shift', ... % next step's guess: 'shift' (the plan one sample on) | 'previous' (the previous plan and multipliers as they are, MATMPC's shifting 'no')
-            'BarrierHomotopy',     0, ...     % mu0 > 0: each warm-started step first solves the OCP plus mu0 x relaxed log barriers on its constraint rows, then the OCP itself from that plan (an interior-point-like start against local minima on active rows); 0: off
+            'BarrierHomotopy',     0, ...     % mu0 > 0: each warm-started step first solves the OCP plus mu0 x relaxed log barriers on its constraints, then the OCP itself from that plan (an interior-point-like start against local minima on active constraints); 0: off
             'BarrierRelax',        1e-2, ...  % the relaxed barrier's switch point delta: -log z for z > delta, its quadratic extension below (Feller & Ebenbauer)
             'BarrierMaxIter',      [], ...    % SQP iteration cap of the barrier phase ([]: SQPMaxIter); the phase only has to move the plan, not converge
             'CandidateGuess',      [], ...    % [] | 'cold' | @(x) [X, U] on the shooting grid: each warm-started step also solves the OCP from this guess (FirstStepSQPMaxIter) and keeps the converged plan with the lower NLP objective (a two-start step against local minima)
@@ -180,14 +180,14 @@ classdef rtimpc < handle
         GridNow = []              % shooting grid and cost points of the step in progress
         PlanTimes = []            % node times of the current plan [fine samples from now]
         HasDCache = []            % output_has_D result for the current Jacobian.OutputFcn
-        PathNow = []              % path-constraint rows of the step in progress (path_setup)
+        PathNow = []              % path constraints of the step in progress (path_setup)
         ConstraintsNow = []       % Constraints with the step's bound overrides (step_constraints)
         BarrierNow = 0            % Optimisation.BarrierHomotopy: the barrier weight of the solve in progress (0: the OCP itself)
         QPDual = []               % multipliers of the last QP solved (as passed to the solver, i.e. rate-augmented)
         QPDualInit = []           % multipliers to start the next QP from (QPWarmStart)
         InertiaDelta = 0          % the last nonzero inertia-correction delta of a solved Riccati QP (the next QP's hint; IPOPT keeps delta_last from successes only)
         FunnelNow = []            % Globalisation 'funnel': this step's funnel width tau, penalty parameter mu, penalty mode
-        Multipliers = []          % Hessian 'exact' or row curvature: the plan's multiplier estimates (pi: dynamics, lg: rows' net, ug: rows' upper)
+        Multipliers = []          % Hessian 'exact' or constraint curvature: the plan's multiplier estimates (pi: dynamics, lg: the constraints' net, ug: their upper)
         NLPDual = []              % SQPStopping 'kkt': the plan's multipliers in the QP's layout (rate-augmented), carried as acados's
         ParamNow = []             % parameters of the step in progress, per node 0..M (np x M+1; [] -> none)
         IntegratorUnconverged = 0 % implicit integration steps of the step in progress whose Newton iteration hit its cap
@@ -312,7 +312,7 @@ classdef rtimpc < handle
     methods (Access = private)
 
         function [u, info] = barrier_step(obj, x, ref, opts, mu0)
-        % Optimisation.BarrierHomotopy: the warm-started step on the OCP plus mu0 x relaxed log barriers on the constraint rows (barrier_cost), then the OCP itself from that plan and its multipliers, unshifted (WarmStart 'previous' for the second solve). The barrier phase pulls the plan off active rows, as an interior-point method's start does; the second solve converges to a KKT point of the OCP as posed.
+        % Optimisation.BarrierHomotopy: the warm-started step on the OCP plus mu0 x relaxed log barriers on the constraints (barrier_cost), then the OCP itself from that plan and its multipliers, unshifted (WarmStart 'previous' for the second solve). The barrier phase pulls the plan off active constraints, as an interior-point method's start does; the second solve converges to a KKT point of the OCP as posed.
             ws = obj.Optimisation.WarmStart;  cap = obj.Optimisation.SQPMaxIter;
             restore = onCleanup(@() barrier_done(obj, ws, cap));
             obj.BarrierNow = mu0;
@@ -419,8 +419,8 @@ classdef rtimpc < handle
                 ocp.Zlx = [xL2(:,1), xL2];      ocp.Zux = ocp.Zlx;
             end
             pc = obj.path_setup(x, Ub(:,1), hasD, d);   % path constraints (output bounds, PathConstraintFcn)
-            g0min = pc.gmin(:, 1);  g0max = pc.gmax(:, 1);   % node 0's row bounds as posed (see the linearisation)
-            if pc.on   % general QP rows at nodes 0..M (column 1, node 0: InitialConstraintFcn rows only)
+            g0min = pc.gmin(:, 1);  g0max = pc.gmax(:, 1);   % node 0's constraint bounds as posed (see the linearisation)
+            if pc.on   % general QP constraints at nodes 0..M (column 1, node 0: the initial constraints only)
                 ng = pc.ng;
                 ocp.Cg = zeros(ng, nx, M+1);  ocp.Dg = zeros(ng, nu, M+1);   % page M+1: node M's D (rate_augment)
                 ocp.lg = -inf(ng, M+1);  ocp.ug = inf(ng, M+1);
@@ -438,7 +438,7 @@ classdef rtimpc < handle
             step_norm = NaN;
             % Hessian 'exact': multiplier estimates, from the previous plan's (shifted like it) or zero (the first iteration then has the Gauss-Newton Hessian)
             exact = strcmpi(op.Hessian, 'exact');
-            mdl = obj.Model;   % Gauss-Newton with row curvature (generalised Gauss-Newton, ggn_curvature)
+            mdl = obj.Model;   % Gauss-Newton with constraint curvature (generalised Gauss-Newton, ggn_curvature)
             ggn = ~exact && (~isempty(mdl.ConstraintHessianFcn) || ~isempty(mdl.TerminalConstraintHessianFcn) || ~isempty(mdl.InitialConstraintHessianFcn));
             if exact && ~isempty(G.pts)
                 error('rtimpc:Hessian', 'Hessian ''exact'' does not support CostDiscretisation ''integrator''.')
@@ -624,11 +624,11 @@ classdef rtimpc < handle
                     for a = 1:M+1
                         [gv, Cg, Dg] = obj.path_rows(Xb(:,a), Ub(:, min(a, M)), hasD, node_kind(a, M), obj.node_p(a));
                         ocp.Cg(:,:,a) = Cg;
-                        ocp.Dg(:,:,a) = Dg .* su';   % node M: zero (terminal output and rows in x_M only)
+                        ocp.Dg(:,:,a) = Dg .* su';   % node M: zero (terminal output and constraints in x_M only)
                         ocp.lg(:,a) = pc.gmin(:,a) - gv;
                         ocp.ug(:,a) = pc.gmax(:,a) - gv;
-                        if a == 1   % node 0 (x_0 fixed): a row without u_0 is a constant of the QP, its
-                            % multiplier undetermined (on its bound the IPM drives it to infinity, and the merit weights with it: x_0 is eliminated, so no x_0 bound multiplier absorbs it, as acados's would); left out of the QP. A hard one also of this iteration's row bounds (infeasibility, Feasible): the measurement's, not the step's. A soft one keeps its bounds: its penalty, a constant, is in the cost, the merit and ConstraintViolation, as acados's node-0 slack. E.g. a state-only InitialConstraintFcn row: x_0 is the measurement. Without u_0 structurally (at this x_0), not only locally: a zero row of Dg at u_0 must stay zero at probe inputs (node0_input_free), so e.g. u_0^2 >= 1 at u_0 = 0 is kept (an inconsistent linearisation, not a constant)
+                        if a == 1   % node 0 (x_0 fixed): a constraint without u_0 is a constant of the QP, its
+                            % multiplier undetermined (on its bound the IPM drives it to infinity, and the merit weights with it: x_0 is eliminated, so no x_0 bound multiplier absorbs it, as acados's would); left out of the QP. A hard one also of this iteration's constraint bounds (infeasibility, Feasible): the measurement's, not the step's. A soft one keeps its bounds: its penalty, a constant, is in the cost, the merit and ConstraintViolation, as acados's node-0 slack. E.g. a state-only initial constraint: x_0 is the measurement. Without u_0 structurally (at this x_0), not only locally: a zero row of Dg at u_0 must stay zero at probe inputs (node0_input_free), so e.g. u_0^2 >= 1 at u_0 = 0 is kept (an inconsistent linearisation, not a constant)
                             const = all(Dg == 0, 2);
                             if any(const), const = obj.node0_input_free(const, Xb(:,1), Ub(:,1), hasD, su); end
                             ocp.lg(const, 1) = -Inf;  ocp.ug(const, 1) = Inf;
@@ -838,7 +838,7 @@ classdef rtimpc < handle
                 % multipliers from a solved QP only: an unsolved one's (iteration cap, stall) are not estimates of the NLP's, and through the exact Hessian (lam' curvature) they spoil the next QPs (ball maze, 2026-10-20: 1e22, after which every relaxed Byrd-Omojokun QP failed); as the merit weights
                 solved_now = strcmp(qinfo.status, 'solved');   % (qp_solved is also false while Byrd-Omojokun leaves a violation)
                 if kkt_stop && isfield(sol, 'raw_dual') && solved_now, dual = rtimpc.blend_dual(dual, sol.raw_dual, alpha); end
-                % and not from a Byrd-Omojokun step's relaxed QP: its rows are relaxed to just what the feasibility QP could not remove, so it is nearly infeasible and its multipliers are large (they price the artificial tightness, not the NLP's rows); through the exact Hessian they made the next QPs unsolvable (ball maze: curvature 3e12; quadprog fails on it too). acados takes them; Gauss-Newton is unaffected (no multipliers). The previous estimates are kept.
+                % and not from a Byrd-Omojokun step's relaxed QP: its constraints are relaxed to just what the feasibility QP could not remove, so it is nearly infeasible and its multipliers are large (they price the artificial tightness, not the NLP's constraints); through the exact Hessian they made the next QPs unsolvable (ball maze: curvature 3e12; quadprog fails on it too). acados takes them; Gauss-Newton is unaffected (no multipliers). The previous estimates are kept.
                 if (exact || ggn) && solved_now && ~bo.feas_now   % the QP's multipliers are the new estimates; move towards them as far as the step
                     lam.pi = lam.pi + alpha * (sol.pi - lam.pi);
                     if ngl > 0
@@ -892,7 +892,7 @@ classdef rtimpc < handle
                 info.StateViolation = max(max(xmin - Xb(:,2:end), Xb(:,2:end) - xmax), [], 'all');
                 info.StateViolation = max(info.StateViolation, 0);
             end
-            % Feasible: the returned plan's hard bounds, rows and rate limits within SQPTolIneq. Soft ones are priced, not required (StateViolation, ConstraintViolation, InputViolation, RateViolation: soft and hard alike, the largest slack the plan needs); hard input bounds hold by the clip; shooting gaps are not included (PlanGap)
+            % Feasible: the returned plan's hard bounds, constraints and rate limits within SQPTolIneq. Soft ones are priced, not required (StateViolation, ConstraintViolation, InputViolation, RateViolation: soft and hard alike, the largest slack the plan needs); hard input bounds hold by the clip; shooting gaps are not included (PlanGap)
             [hxmin, hxmax] = hard_state_bounds(obj, M);
             hv = max([0; reshape(max(hxmin - Xb(:,2:end), Xb(:,2:end) - hxmax), [], 1)]);
             if pc.on
@@ -935,7 +935,7 @@ classdef rtimpc < handle
         %   ConstraintJacobianX/U, InitialConstraintJacobianX/U, TerminalConstraintJacobian
         %   StageCostGradient/Hessian, TerminalCostGradient/Hessian   the functions' 2nd and 3rd outputs
         %   IntervalHessian, ConstraintLagrangianHessian  the exact-Hessian functions, against differences of the Jacobians
-        % Not checked: ConstraintHessianFcn and its initial and terminal forms, which need not be the rows' Hessians (e.g. the convex-over-nonlinear term).
+        % Not checked: ConstraintHessianFcn and its initial and terminal forms, which need not be the constraints' Hessians (e.g. the convex-over-nonlinear term).
             if nargin < 4, p = []; end
             if nargin < 5 || isempty(ref), ref = zeros(obj.ny, 1); end
             x = x(:);  u = u(:);  nx = obj.nx;  nz = nx + obj.nu;  z = [x; u];
@@ -1409,7 +1409,7 @@ classdef rtimpc < handle
         end
 
         function [qp, eqr] = prepare_qp(obj, ocp, Ub, rate, su)
-        % The QP as passed to the solver: rate-augmented when rate terms are set; for the Riccati solver, hard first-node rows pinned to one value as its equality rows (first_node_equalities)
+        % The QP as passed to the solver: rate-augmented when rate terms are set; for the Riccati solver, hard first-node constraints pinned to one value as its equality constraints (first_node_equalities)
             qp = ocp;  eqr = false(0, 1);
             if rate.on, qp = obj.rate_augment(ocp, Ub, rate, su); end
             if strcmp(obj.Optimisation.QPSolver, 'riccati'), [qp, eqr] = rtimpc.first_node_equalities(qp); end
@@ -1454,7 +1454,7 @@ classdef rtimpc < handle
                         qinfo.iter = qinfo.iter + it_warm;  qinfo.cold_retry = true;
                     end
                     sol.raw_dual = rtimpc.raw_dual(sol);
-                    if any(eqr)   % their multiplier back as the rows' net one (lam_ug - lam_lg)
+                    if any(eqr)   % their multiplier back as the constraints' net one (lam_ug - lam_lg)
                         sol.lam_ug(eqr, 1) = max(sol.nu_eq1, 0);  sol.lam_lg(eqr, 1) = max(-sol.nu_eq1, 0);
                     end
                     if qinfo.inertia_delta > 0 && strcmp(qinfo.status, 'solved'), obj.InertiaDelta = qinfo.inertia_delta; end
@@ -1475,7 +1475,7 @@ classdef rtimpc < handle
 
         function [sol, qinfo, bo] = solve_direction(obj, ocp, Ub, rate, su, args, bo)
         % The SQP step's QP. InfeasibleQP 'byrd-omojokun' (acados's SQP_WITH_FEASIBLE_QP direction):
-        % solve the QP; if it is unsolved (infeasible linearisation: iteration cap or stall), switch to two QPs per iteration for the rest of the step: a feasibility QP (every hard state bound and constraint row softened with unit L1 price, Hessian 1e-4 I, no cost; soft rows free, input bounds and rate limits kept hard), then the QP with each softened row relaxed by 1.00001 x the violation the feasibility QP could not remove. InfeasibleQPSticky false (the default): the plain QP is tried first at every iteration; true (acados's): back to one QP only after the feasibility QPs find (nearly) no violation twice.
+        % solve the QP; if it is unsolved (infeasible linearisation: iteration cap or stall), switch to two QPs per iteration for the rest of the step: a feasibility QP (every hard state bound and constraint softened with unit L1 price, Hessian 1e-4 I, no cost; soft constraints free, input bounds and rate limits kept hard), then the QP with each softened constraint relaxed by 1.00001 x the violation the feasibility QP could not remove. InfeasibleQPSticky false (the default): the plain QP is tried first at every iteration; true (acados's): back to one QP only after the feasibility QPs find (nearly) no violation twice.
             bo.feas_now = 0;
             mode = lower(obj.Optimisation.InfeasibleQP);
             if ~bo.on || ~obj.Optimisation.InfeasibleQPSticky
@@ -1488,7 +1488,7 @@ classdef rtimpc < handle
             end
             [fq, hard] = feasibility_qp(ocp);
             rz = rate;  rz.R = zeros(size(rate.R));        % no rate cost in the feasibility QP
-            if isfield(rz, 'L1')                           % soft rate limits free, as the soft rows
+            if isfield(rz, 'L1')                           % soft rate limits free, as the soft constraints
                 sr = isfinite(rz.L1);  rz.L1(sr) = 0;  rz.L2 = sr .* (1e-4 ./ su.^2);
             end
             keep = {obj.QPDual, obj.QPDualInit};  obj.QPDualInit = [];   % its own (cold) start; not a warm start for others
@@ -1499,7 +1499,7 @@ classdef rtimpc < handle
                 sol = fs;  qinfo = finfo;  qinfo.iter = qinfo.iter + n0;
                 return
             end
-            % relax the softened rows by what the feasibility QP could not remove
+            % relax the softened constraints by what the feasibility QP could not remove
             q = ocp;  f = 1.00001;  l1 = 0;
             if isfield(q, 'lbx')
                 sl = fs.slack_lbx .* hard.xl;  su_ = fs.slack_ubx .* hard.xu;
@@ -1521,7 +1521,7 @@ classdef rtimpc < handle
         function ocp = lagrangian_curvature(obj, ocp, Xb, Ub, ref, W, lam, su, hasD, d)
         % Hessian 'exact': adds to the QP Hessian the second-order terms Gauss-Newton leaves out, so that it is the Hessian of the Lagrangian (QP units: objective J/2, the QP's multipliers)
         %   L = sum_a 1/2 e_a'W_a e_a + sum_i pi_{i+1}'(F(x_i, u_i) - x_{i+1}) + sum_a lg_a'g(x_a, u_a)
-        % (lg = lam_ug - lam_lg: the rows' net multipliers): per stage, the central-difference Jacobian of the stage gradient [A'pi + C'W e + Cg'lg; B'pi + D'W e + Dg'lg] in (x_i, u_i) (node M: in x_M only), minus the Gauss-Newton part [C D]'W[C D] already in the QP. Not convexified: the Riccati QP needs its reduced Hessians positive definite. Difference steps: 1e-5 in the QP's own variables (states as they are, inputs in InputScale units). eps^(1/3) ~ 6e-6 balances truncation and round-off for exact first derivatives; 1e-5 also keeps an implicit integrator's Newton tolerance (1e-13) at <= 1e-8 in the result. An absolute step is exact to round-off while eps |x| << 1e-5, i.e. |x| << 1e10. Model.IntervalHessianFcn and Model.ConstraintLagrangianHessianFcn (e.g. CasADi, all nodes in one call) replace the differences of the dynamics and of the PathConstraintFcn rows.
+        % (lg = lam_ug - lam_lg: the constraints' net multipliers): per stage, the central-difference Jacobian of the stage gradient [A'pi + C'W e + Cg'lg; B'pi + D'W e + Dg'lg] in (x_i, u_i) (node M: in x_M only), minus the Gauss-Newton part [C D]'W[C D] already in the QP. Not convexified: the Riccati QP needs its reduced Hessians positive definite. Difference steps: 1e-5 in the QP's own variables (states as they are, inputs in InputScale units). eps^(1/3) ~ 6e-6 balances truncation and round-off for exact first derivatives; 1e-5 also keeps an implicit integrator's Newton tolerance (1e-13) at <= 1e-8 in the result. An absolute step is exact to round-off while eps |x| << 1e-5, i.e. |x| << 1e10. Model.IntervalHessianFcn and Model.ConstraintLagrangianHessianFcn (e.g. CasADi, all nodes in one call) replace the differences of the dynamics and of the path constraints.
             nx = obj.nx;  nu = obj.nu;  M = numel(d);
             ng = size(lam.lg, 1);
             hx = 1e-5;  hu = 1e-5 * su;
@@ -1533,10 +1533,10 @@ classdef rtimpc < handle
                 else, Hdyn = mdl.IntervalHessianFcn(Xb(:,1:M), Ub, d, Pi, obj.ParamNow(:, min(1:M, size(obj.ParamNow, 2))));
                 end
             end
-            Hrow = [];  rp = [];   % the rows hook's, (nx+nu) x (nx+nu) x M-1 (inner nodes 1..M-1)
+            Hrow = [];  rp = [];   % the constraint-Hessian hook's, (nx+nu) x (nx+nu) x M-1 (inner nodes 1..M-1)
             pc = obj.PathNow;
             if ~isempty(mdl.ConstraintLagrangianHessianFcn) && ng > 0 && pc.ngp > 0 && M >= 2
-                rp = numel(pc.yrows) + (1:pc.ngp);   % the PathConstraintFcn rows (path_rows' order)
+                rp = numel(pc.yrows) + (1:pc.ngp);   % the path constraints (path_rows' order)
                 Hrow = ucall(mdl.ConstraintLagrangianHessianFcn, 3, obj.node_ps(2:M), Xb(:,2:M), Ub(:,2:M), lam.lg(rp, 2:M));
             end
             for i = 1:M+1
@@ -1545,7 +1545,7 @@ classdef rtimpc < handle
                 if term || ~isempty(Hdyn), p = []; else, p = lam.pi(:, i+1);  if ~any(p), p = []; end, end
                 Wi = [];  if i >= 2, Wi = W(:,:,i-1);  if ~any(Wi(:)), Wi = []; end, end
                 l = [];   if ng > 0, l = lam.lg(:, i);  if ~isempty(Hrow) && node_kind(i, M) == 1, l(rp) = 0; end, if ~any(l), l = []; end, end
-                nz = nx + nu * ~term;   % node M: in x_M only (terminal output and rows)
+                nz = nx + nu * ~term;   % node M: in x_M only (terminal output and constraints)
                 H = zeros(nz);   % the hooks' part
                 if ~term && ~isempty(Hdyn), H = H + Hdyn(:,:,i); end
                 if ~isempty(Hrow) && node_kind(i, M) == 1, H = H + Hrow(:,:,i-1); end
@@ -1601,7 +1601,7 @@ classdef rtimpc < handle
         end
 
         function ocp = ggn_curvature(obj, ocp, Xb, Ub, mu, su, M)
-        % Gauss-Newton with row curvature (generalised Gauss-Newton; Messerer, Baumgaertner & Diehl, "Survey of sequential convex programming and generalized Gauss-Newton methods", ESAIM Proc. 2021): adds sum_k mu_k H_k at each node, H_k from the node's ConstraintHessianFcn (inner nodes), InitialConstraintHessianFcn (node 0) or TerminalConstraintHessianFcn (node M, x only), mu the rows' upper-bound multipliers (QP units, as the QP Hessian). For g_k = phi_k(r(x, u)) with phi_k convex and H_k = Jr' phi_k'' Jr this is acados's term for its convex-over-nonlinear constraints (ocp_nlp_constraints_bgp.c: the upper multiplier only, so the term is positive semidefinite). Rows at their lower bound add nothing.
+        % Gauss-Newton with constraint curvature (generalised Gauss-Newton; Messerer, Baumgaertner & Diehl, "Survey of sequential convex programming and generalized Gauss-Newton methods", ESAIM Proc. 2021): adds sum_k mu_k H_k at each node, H_k from the node's ConstraintHessianFcn (inner nodes), InitialConstraintHessianFcn (node 0) or TerminalConstraintHessianFcn (node M, x only), mu the constraints' upper-bound multipliers (QP units, as the QP Hessian). For g_k = phi_k(r(x, u)) with phi_k convex and H_k = Jr' phi_k'' Jr this is acados's term for its convex-over-nonlinear constraints (ocp_nlp_constraints_bgp.c: the upper multiplier only, so the term is positive semidefinite). Rows at their lower bound add nothing.
             pc = obj.PathNow;  nx = obj.nx;
             ny_ = numel(pc.yrows);
             rows = {ny_ + pc.ngp + pc.ngt + (1:pc.ng0), ny_ + (1:pc.ngp), ny_ + pc.ngp + (1:pc.ngt)};   % by node_kind 0, 1, 2
@@ -1627,7 +1627,7 @@ classdef rtimpc < handle
         end
 
         function [alpha, nu_merit, ls, sol] = merit_line_search(obj, Xb, Ub, sol, ocp, x, ref, uref, W, su, J0, nu_merit, qp_solved, accuracy_test)
-        % Armijo backtracking on the l1 merit  phi = J + sum w .* |gaps| + w0 .* |x_0 - x| + hard state bound, row and input-rate-limit violations weighted likewise; soft-bound violations are already priced into J. MeritWeights 'elementwise' (Leineweber 1999, M5.1; acados's MERIT_BACKTRACKING): each gap and bound has its own weight, from its multiplier: w = 2.2|lam| on the first SQP iteration (2: the QP objective is J/2; 1.1: a margin), then w = max(2.2|lam|, (2.2|lam| + w)/2). Each residual is priced in its own units, so a state measured in large units (a temperature in K) does not dominate the merit (the default). 'component': one weight per state component, 2.2 max|lam| over the nodes (non-decreasing within a step). 'scalar': one weight, 2.2 max|lam|, for every residual. (NMPC suite: scalar stalls on the CSTR's cold start; elementwise and component give the same closed loops, elementwise with as many or fewer SQP iterations.) SecondOrderCorrection: if the full step is rejected, re-solve the QP with the gaps the full step actually opens (minus its linear prediction), which removes their second-order part, and try the corrected full step before backtracking on the original one. Returns the step taken in sol (the corrected one if it was accepted). accuracy_test (QPAccuracyTest): before backtracking, the step's reduction of the merit's linear model, dl = -D - (the weighted residuals of the linearised dynamics and x_0 that the inexact QP leaves), must reach its curvature T (step_curvature): the step's QP objective no worse than the zero step's, Termination Test 1 of Curtis, Johnson, Robinson & Waechter (2014), whose (2.17) it implies. An exact QP solution meets it with a factor 2 (dl >= 2T, as the weights exceed the multipliers). If not, ls.short is set and nothing else is done: the caller re-solves the QP more accurately.
+        % Armijo backtracking on the l1 merit  phi = J + sum w .* |gaps| + w0 .* |x_0 - x| + hard state bound, constraint and input-rate-limit violations weighted likewise; soft-bound violations are already priced into J. MeritWeights 'elementwise' (Leineweber 1999, M5.1; acados's MERIT_BACKTRACKING): each gap and bound has its own weight, from its multiplier: w = 2.2|lam| on the first SQP iteration (2: the QP objective is J/2; 1.1: a margin), then w = max(2.2|lam|, (2.2|lam| + w)/2). Each residual is priced in its own units, so a state measured in large units (a temperature in K) does not dominate the merit (the default). 'component': one weight per state component, 2.2 max|lam| over the nodes (non-decreasing within a step). 'scalar': one weight, 2.2 max|lam|, for every residual. (NMPC suite: scalar stalls on the CSTR's cold start; elementwise and component give the same closed loops, elementwise with as many or fewer SQP iterations.) SecondOrderCorrection: if the full step is rejected, re-solve the QP with the gaps the full step actually opens (minus its linear prediction), which removes their second-order part, and try the corrected full step before backtracking on the original one. Returns the step taken in sol (the corrected one if it was accepted). accuracy_test (QPAccuracyTest): before backtracking, the step's reduction of the merit's linear model, dl = -D - (the weighted residuals of the linearised dynamics and x_0 that the inexact QP leaves), must reach its curvature T (step_curvature): the step's QP objective no worse than the zero step's, Termination Test 1 of Curtis, Johnson, Robinson & Waechter (2014), whose (2.17) it implies. An exact QP solution meets it with a factor 2 (dl >= 2T, as the weights exceed the multipliers). If not, ls.short is set and nothing else is done: the caller re-solves the QP more accurately.
             op = obj.Optimisation;
             if nargin < 14, accuracy_test = op.QPAccuracyTest; end
             M = size(Xb, 2) - 1;
@@ -1638,7 +1638,7 @@ classdef rtimpc < handle
             lam = struct('g', abs(sol.pi(:, 2:end)), 'x0', abs(lam_x0), 'l', zeros(obj.nx, M), 'u', zeros(obj.nx, M), ...
                          'gl', zeros(ng, M+1), 'gu', zeros(ng, M+1));
             if isfield(sol, 'lam_lbx'), lam.l = sol.lam_lbx(:, 2:end);  lam.u = sol.lam_ubx(:, 2:end); end
-            if ng > 0, lam.gl = sol.lam_lg;  lam.gu = sol.lam_ug; end   % rows at nodes 0..M
+            if ng > 0, lam.gl = sol.lam_lg;  lam.gu = sol.lam_ug; end   % constraints at nodes 0..M
             % hard input-rate limits: with the rate augmentation on, the QP's input box is the box on v_i = du_i - du_{i-1} (rate_augment), its multipliers per scaled input: / su per unit change
             rt = obj.RateNow;  rate_on = ~isempty(rt) && rt.on;
             lam.rl = zeros(obj.nu, M);  lam.ru = zeros(obj.nu, M);
@@ -1647,7 +1647,7 @@ classdef rtimpc < handle
             fn = fieldnames(lam)';
             if ~qp_solved && isstruct(nu_merit)
                 % A QP stopped at its iteration cap (or stalled) has unconverged multipliers, which can be huge (1e60 seen on a diverging model): keep this step's earlier weights
-            elseif strcmpi(op.MeritWeights, 'component')     % per component (state or row), uniform over the nodes
+            elseif strcmpi(op.MeritWeights, 'component')     % per component (state or constraint), uniform over the nodes
                 cm = @(v) max([v, zeros(size(v, 1), 1)], [], 2) .* ones(1, size(v, 2));
                 gx0 = cm([lam.g, lam.x0]);
                 lam.x0 = gx0(:, end);  lam.g = gx0(:, 1:end-1);
@@ -1665,7 +1665,7 @@ classdef rtimpc < handle
             end
             w = nu_merit;
             [xmin, xmax] = hard_state_bounds(obj, M);
-            if ng > 0, hard = ~isfinite(pc.L1); else, hard = false(0, M+1); end   % hard path rows (soft ones are priced in J)
+            if ng > 0, hard = ~isfinite(pc.L1); else, hard = false(0, M+1); end   % hard path constraints (soft ones are priced in J)
             [rlv, ruv] = deal(@(U) 0);   % hard rate-limit violations (lower, upper), nu x M
             if rate_on
                 dUf = @(U) [U(:,1) - rt.u_prev, diff(U, 1, 2)];
@@ -1687,13 +1687,13 @@ classdef rtimpc < handle
             dJ = 2 * (sum(ocp.q .* sol.x, 'all') + sum(ocp.r .* sol.u, 'all'));   % node 0: sol.x(:,1) = x - x_0 (costs at node 0: StageCostFcn, 'integrator' points)
             if isfield(ocp, 'rN'), dJ = dJ + 2 * (ocp.rN' * sol.u(:,M)); end   % terminal cost in u_{M-1}
             dJ = dJ + obj.soft_penalty_slope(Xb, sol.x);
-            if ng > 0   % soft path rows: slope of their penalty along the linearised rows
+            if ng > 0   % soft path constraints: slope of their penalty along their linearisation
                 dG = zeros(ng, M+1);
                 for a = 1:M+1
                     dG(:,a) = ocp.Cg(:,:,a) * sol.x(:,a) + ocp.Dg(:,:,a) * sol.u(:, min(a, M));
                 end
                 dJ = dJ + rtimpc.soft_slope(G0, dG, pc.gmin, pc.gmax, pc.L1, pc.L2);
-                % (BarrierHomotopy: the barrier's slope is in ocp.q, ocp.r and, node M's rows' part in u_{M-1}, ocp.rN: all above)
+                % (BarrierHomotopy: the barrier's slope is in ocp.q, ocp.r and, node M's constraints' part in u_{M-1}, ocp.rN: all above)
             end
             if ~isempty(obj.RateNow) && obj.RateNow.on
                 rn = obj.RateNow;  dUs = sol.u .* su;
@@ -1906,14 +1906,14 @@ classdef rtimpc < handle
         end
 
         function B = barrier_cost(obj, X, U)
-        % Optimisation.BarrierHomotopy: BarrierNow x the relaxed log barriers of every finite row bound (0 when off)
+        % Optimisation.BarrierHomotopy: BarrierNow x the relaxed log barriers of every finite constraint bound (0 when off)
             B = 0;  pc = obj.PathNow;
             if obj.BarrierNow == 0 || isempty(pc) || ~pc.on, return, end
             B = sum(obj.barrier_terms(obj.path_values(X, U), pc.gmin, pc.gmax), 'all');
         end
 
         function [b, g1, g2] = barrier_terms(obj, G, gmin, gmax)
-        % BarrierNow x relaxed log barrier of the rows' bound distances, per row (b), and its first and second derivatives in the row value (g1, g2): beta(z) = -log z for z > delta, else ((z - 2 delta)^2 / delta^2 - 1) / 2 - log delta (C2-matched; Feller & Ebenbauer 2017)
+        % BarrierNow x relaxed log barrier of the constraints' bound distances, per constraint (b), and its first and second derivatives in the constraint value (g1, g2): beta(z) = -log z for z > delta, else ((z - 2 delta)^2 / delta^2 - 1) / 2 - log delta (C2-matched; Feller & Ebenbauer 2017)
             mu = obj.BarrierNow;  dl = obj.Optimisation.BarrierRelax;
             [b, g1, g2] = deal(zeros(size(G)));
             for side = [1, -1]
@@ -1929,7 +1929,7 @@ classdef rtimpc < handle
         end
 
         function pc = path_setup(obj, x, u, hasD, d)
-        % Constraint rows of this step, stacked: output bounds (rows of y with a finite bound; nodes 1..M), path constraints (PathConstraintFcn; nodes 1..M-1), terminal constraints (TerminalConstraintFcn; node M), initial constraints (InitialConstraintFcn; node 0). Bounds per node (ng x M+1, column a = node a-1; -+Inf where a row does not apply) and node-level soft weights: per-sample weights x interval length for the output and path rows (as the state bounds) and for the initial rows (node 0's input is held over interval 1), as given for the terminal rows. Stored in PathNow.
+        % The step's constraints, stacked in one array per node in this order: output bounds (outputs with a finite bound; nodes 1..M), path constraints (PathConstraintFcn; nodes 1..M-1), terminal constraints (TerminalConstraintFcn; node M), initial constraints (InitialConstraintFcn; node 0). Bounds per node (ng x M+1, column a = node a-1; -+Inf where a constraint does not apply) and node-level soft weights: per-sample weights x interval length for the output bounds and path constraints (as the state bounds) and for the initial constraints (node 0's input is held over interval 1), as given for the terminal constraints. Stored in PathNow.
             ny = obj.ny;  M = numel(d);  Cn = obj.constraints_now();  N = obj.PredictionHorizon;
             tau = obj.grid_tau(M);  nodes = tau(2:M+1);   % node j at fine sample tau(j+1)
             Ymin = sample_array(Cn.OutputMin, ny, N, 'OutputMin', -Inf);
@@ -1952,10 +1952,10 @@ classdef rtimpc < handle
             gmax(it, M+1) = bnd(Cn.TerminalConstraintMax, ngt,  1);
             gmin(i0, 1) = bnd(Cn.InitialConstraintMin, ng0, -1);
             gmax(i0, 1) = bnd(Cn.InitialConstraintMax, ng0,  1);
-            % output and path rows: per-sample weights summed over each node's interval (as the state bounds); node 0 (where they do not apply) takes node 1's
+            % output bounds and path constraints: per-sample weights summed over each node's interval (as the state bounds); node 0, where they do not apply, takes node 1's
             yL1 = summed(sample_array(Cn.OutputPenaltyL1, ny, N, 'OutputPenaltyL1', 1e4), tau, M);
             yL2 = summed(sample_array(Cn.OutputPenaltyL2, ny, N, 'OutputPenaltyL2', 0), tau, M);
-            yL1 = yL1(yrows, :);  yL2 = yL2(yrows, :);   % the bounded rows
+            yL1 = yL1(yrows, :);  yL2 = yL2(yrows, :);   % the bounded outputs
             pL1 = summed(sample_array(Cn.PathConstraintPenaltyL1, ngp, N, 'PathConstraintPenaltyL1', 1e4), tau, M);
             pL2 = summed(sample_array(Cn.PathConstraintPenaltyL2, ngp, N, 'PathConstraintPenaltyL2', 0), tau, M);
             e0 = [d(1), zeros(1, M)];  eN = [zeros(1, M), 1];       % per node 0..M
@@ -1965,7 +1965,7 @@ classdef rtimpc < handle
                   w(Cn.InitialConstraintPenaltyL2, 0, ng0) .* e0];
             hard = [false(ny_ + ngp, 1); ~isfinite(w(Cn.TerminalConstraintPenaltyL1, 1e4, ngt)); ...
                     ~isfinite(w(Cn.InitialConstraintPenaltyL1, 1e4, ng0))];
-            L1(hard, :) = Inf;  L1(isnan(L1)) = Inf;   % Inf x 0 (a row at a node where it does not apply) is unused
+            L1(hard, :) = Inf;  L1(isnan(L1)) = Inf;   % Inf x 0 (a constraint at a node where it does not apply) is unused
             L2(isnan(L2)) = 0;
             pc = struct('on', ng > 0, 'ng', ng, 'yrows', yrows, 'ngp', ngp, 'ngt', ngt, 'ng0', ng0, 'hasD', hasD, ...
                         'gmin', gmin, 'gmax', gmax, 'L1', L1, 'L2', L2, 'M', M);
@@ -1973,7 +1973,7 @@ classdef rtimpc < handle
         end
 
         function [g, C, D] = path_rows(obj, x, u, hasD, kind, p)
-        % Constraint-row values and Jacobians at (x, u) of a node of the given kind (node_kind: 0 initial, 1 inner, 2 terminal): output rows (zero at node 0), then path rows (inner nodes), terminal rows (node M) and initial rows (node 0), each zero elsewhere. p: the node's parameter, passed to functions that take one
+        % Constraint values and Jacobians at (x, u) of a node of the given kind (node_kind: 0 initial, 1 inner, 2 terminal): output bounds (zero at node 0), then path constraints (inner nodes), terminal constraints (node M) and initial constraints (node 0), each zero elsewhere. p: the node's parameter, passed to functions that take one
             if nargin < 6, p = []; end
             pc = obj.PathNow;  nx = obj.nx;  nu = obj.nu;  mdl = obj.Model;  jf = obj.Jacobian;
             g = zeros(0, 1);  C = zeros(0, nx);  D = zeros(0, nu);
@@ -2023,7 +2023,7 @@ classdef rtimpc < handle
         end
 
         function free = node0_input_free(obj, free, x, u, hasD, su)
-        % Node-0 rows (logical, ng x 1) whose input Jacobian is zero at u stay marked free only if it is also zero at two probe inputs u + su .* r (x fixed: x_0 is the measurement). A row that depends on u_0 vanishes there only on a measure-zero set, so a generic probe finds it. The directions r are fixed (reproducible, no rng state), on the scale of InputScale (su: the QP's input scaling, the inputs' declared or bound-derived typical size). A non-finite Jacobian at a probe (outside the function's domain) is no evidence either way: ignored.
+        % Node-0 constraints (logical, ng x 1) whose input Jacobian is zero at u stay marked free only if it is also zero at two probe inputs u + su .* r (x fixed: x_0 is the measurement). A constraint that depends on u_0 vanishes there only on a measure-zero set, so a generic probe finds it. The directions r are fixed (reproducible, no rng state), on the scale of InputScale (su: the QP's input scaling, the inputs' declared or bound-derived typical size). A non-finite Jacobian at a probe (outside the function's domain) is no evidence either way: ignored.
             nu = obj.nu;  j = (1:nu)';
             for r = [cos(1.1 * j + 0.3), sin(2.3 * j + 0.7)]
                 [~, ~, D] = obj.path_rows(x, u + su(:) .* r, hasD, 0, obj.node_p(1));
@@ -2034,7 +2034,7 @@ classdef rtimpc < handle
         end
 
         function G = path_values(obj, X, U)
-        % Constraint-row values of a plan at nodes 0..M (ng x M+1; node M: terminal output rows)
+        % Constraint values of a plan at nodes 0..M (ng x M+1; node M: terminal output bounds)
             pc = obj.PathNow;
             if isempty(pc) || ~pc.on, G = zeros(0, size(U, 2) + 1); return, end
             M = size(U, 2);  G = zeros(pc.ng, M+1);
@@ -2130,7 +2130,7 @@ classdef rtimpc < handle
                 qp.zlu = rate.L1 .* su / 2;  qp.zuu = qp.zlu;
                 qp.Zlu = rate.L2 .* su.^2;   qp.Zuu = qp.Zlu;
             end
-            if isfield(ocp, 'Cg')   % general rows: Cg dx + Dg du with du = xi + v (node N+1: du_N = xi)
+            if isfield(ocp, 'Cg')   % general constraints: Cg dx + Dg du with du = xi + v (node N+1: du_N = xi)
                 ng = size(ocp.Cg, 1);
                 qp.Cg = zeros(ng, n, N+1);  qp.Dg = ocp.Dg(:,:,1:N);
                 for i = 1:N+1, qp.Cg(:,:,i) = [ocp.Cg(:,:,i), ocp.Dg(:,:,i)]; end
@@ -2468,8 +2468,8 @@ classdef rtimpc < handle
         end
 
         function [qp, eqr] = first_node_equalities(qp)
-        % Hard general rows of the first node pinned to one value (lg = ug: e.g. InitialConstraintFcn rows tying inputs together) as equality rows on u_1 (the QP solver's Eq1, solved exactly):
-        % as two-sided rows they leave its interior point no interior. x_1 is fixed, so each such row Cg x_1 + Dg u_1 = lg constrains u_1 alone. eqr marks them; their bounds are dropped. Only when their Dg rows are linearly independent (the QP solver's requirement); else none.
+        % Hard general constraints of the first node pinned to one value (lg = ug: e.g. initial constraints tying inputs together) as equality constraints on u_1 (the QP solver's Eq1, solved exactly):
+        % as two-sided constraints they leave its interior point no interior. x_1 is fixed, so each such constraint Cg x_1 + Dg u_1 = lg constrains u_1 alone. eqr marks them; their bounds are dropped. Only when their Dg rows are linearly independent (the QP solver's requirement); else none.
             eqr = false(0, 1);
             if ~isfield(qp, 'Cg') || isempty(qp.Cg) || size(qp.Cg, 1) == 0, return, end
             ng = size(qp.Cg, 1);  hard = true(ng, 1);
@@ -2480,7 +2480,7 @@ classdef rtimpc < handle
             eqr = isfinite(qp.lg(:, 1)) & qp.lg(:, 1) == qp.ug(:, 1) & hard;
             if ~any(eqr), return, end
             E = qp.Dg(eqr, :, 1);   % the exact step needs independent rows: else (e.g. u1 u2 = 0 linearised
-            if rank(E) < size(E, 1), eqr(:) = false; return, end   % at u = 0, a zero row) leave them as rows
+            if rank(E) < size(E, 1), eqr(:) = false; return, end   % at u = 0, a zero row) leave them as general constraints
             qp.Eq1 = qp.Dg(eqr, :, 1);  qp.eq1 = qp.lg(eqr, 1) - qp.Cg(eqr, :, 1) * qp.x0;
             qp.lg(eqr, 1) = -Inf;  qp.ug(eqr, 1) = Inf;
         end
@@ -2500,10 +2500,10 @@ classdef rtimpc < handle
 
         function [sd, sc] = ipopt_stat_scale(qp, dual)
         % IPOPT's scaled optimality error (Waechter & Biegler 2006, eqs. 5-6; IPOPT's s_max = 100):
-        % s_d = max(s_max, sum|all multipliers| / (n + m)) / s_max divides the stationarity, s_c = max(s_max, sum|inequality multipliers| / n_i) / s_max the complementarity, with n the QP's variables (states of nodes 2..N+1, inputs), m its equality and general rows (dynamics, rows) and n_i its inequality multipliers (IPOPT's bound multipliers z: its inequalities are bounds on slacks). The paper's reason: with very large multipliers the unscaled test can be impossible to meet (its terms carry their round-off). Both are 1 while the mean multipliers are <= 100. (The option: decision D1, 2026-10-17; no suite problem needs it.)
+        % s_d = max(s_max, sum|all multipliers| / (n + m)) / s_max divides the stationarity, s_c = max(s_max, sum|inequality multipliers| / n_i) / s_max the complementarity, with n the QP's variables (states of nodes 2..N+1, inputs), m its equality and general constraints (dynamics, constraints) and n_i its inequality multipliers (IPOPT's bound multipliers z: its inequalities are bounds on slacks). The paper's reason: with very large multipliers the unscaled test can be impossible to meet (its terms carry their round-off). Both are 1 while the mean multipliers are <= 100. (The option: decision D1, 2026-10-17; no suite problem needs it.)
             [nx, nu, N] = size(qp.B);  ng = 0;
             if isfield(qp, 'Cg') && ~isempty(qp.Cg), ng = size(qp.Cg, 1); end
-            % inequality multipliers of the bounds and rows that exist (finite sides; IPOPT has no multipliers for absent bounds), with the QP fields holding each side's limits
+            % inequality multipliers of the bounds and constraints that exist (finite sides; IPOPT has no multipliers for absent bounds), with the QP fields holding each side's limits
             side = struct('lam_lb', 'lb', 'lam_ub', 'ub', 'lam_lbx', 'lbx', 'lam_ubx', 'ubx', 'lam_lg', 'lg', 'lam_ug', 'ug');
             f = fieldnames(dual);  tot = 0;  totz = 0;  nz = 0;
             for k = 1:numel(f)
@@ -2559,7 +2559,7 @@ classdef rtimpc < handle
         end
 
         function dP = soft_slope(G, dG, gmin, gmax, L1, L2)
-        % One-sided directional derivative of the soft penalty sum L1 v + L2 v^2 (v: the violation of gmin <= G <= gmax, soft rows: finite L1) along dG; as soft_penalty_slope
+        % One-sided directional derivative of the soft penalty sum L1 v + L2 v^2 (v: the violation of gmin <= G <= gmax, soft constraints: finite L1) along dG; as soft_penalty_slope
             soft = isfinite(L1) & (isfinite(gmin) | isfinite(gmax));
             if ~any(soft, 'all'), dP = 0; return, end
             L1(~soft) = 0;  L2(~soft) = 0;
@@ -2690,7 +2690,7 @@ function s = ternary_str(c, a, b)
 end
 
 function [fq, hard] = feasibility_qp(ocp)
-% Byrd-Omojokun feasibility QP (as acados's): the QP's constraints with every hard state bound and general row softened (unit L1 price), the soft ones free (L1 0, L2 1e-4), the cost replaced by 1e-4 I on all steps (no gradient). Input bounds, hard rows at node 0 (on the first input alone) and the dynamics stay hard. hard: masks of the softened bounds/rows (with a finite bound) and their count.
+% Byrd-Omojokun feasibility QP (as acados's): the QP's constraints with every hard state bound and general constraint softened (unit L1 price), the soft ones free (L1 0, L2 1e-4), the cost replaced by 1e-4 I on all steps (no gradient). Input bounds, hard constraints at node 0 (on the first input alone) and the dynamics stay hard. hard: masks of the softened bounds and constraints (with a finite bound) and their count.
     fq = ocp;  h = 1e-4;
     [nx, nu, N] = size(ocp.B);
     fq.Q = repmat(h * eye(nx), 1, 1, N + 1);  fq.q = zeros(nx, N + 1);
@@ -2719,7 +2719,7 @@ function [fq, hard] = feasibility_qp(ocp)
         hard.gl = ~isfinite(zl) & isfinite(ocp.lg);  hard.gu = ~isfinite(zu) & isfinite(ocp.ug);
         fq.zlg = double(~isfinite(zl));  fq.zug = double(~isfinite(zu));
         fq.Zlg = h * isfinite(zl);       fq.Zug = h * isfinite(zu);
-        % node 0 (x fixed): its hard rows constrain the first input alone, so they stay hard, as the input bounds (e.g. equality rows tying scenario inputs: the QP solver then keeps them exact)
+        % node 0 (x fixed): its hard constraints constrain the first input alone, so they stay hard, as the input bounds (e.g. equality constraints tying scenario inputs: the QP solver then keeps them exact)
         fq.zlg(~isfinite(zl(:, 1)), 1) = Inf;  fq.zug(~isfinite(zu(:, 1)), 1) = Inf;
         hard.gl(:, 1) = false;  hard.gu(:, 1) = false;
     end
@@ -2764,7 +2764,7 @@ function v = interval_adjoint(obj, z, p, w)
 end
 
 function v = constraint_adjoint(f, J, z, nx, w)
-% [Cg'w; Dg'w] of the constraint rows at z = [x; u] (validate: ConstraintLagrangianHessianFcn)
+% [Cg'w; Dg'w] of the constraints at z = [x; u] (validate: ConstraintLagrangianHessianFcn)
     [C, D] = constraint_jacobian(f, J, z(1:nx), z(nx+1:end));
     v = [C' * w; D' * w];
 end
